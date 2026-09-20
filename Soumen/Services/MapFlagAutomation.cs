@@ -39,6 +39,7 @@ public sealed class MapFlagAutomation : IDisposable
     private DateTime lastProgressUtc = DateTime.UtcNow;
     private DateTime teleportIssuedUtc = DateTime.MinValue;
     private long? teleportedTargetSerial;
+    private long? routeComparedTargetSerial;
     private long serial;
     private int recoveryAttempts;
     private bool manualSelection;
@@ -314,6 +315,7 @@ public sealed class MapFlagAutomation : IDisposable
         routePlan = null;
         teleportArrivalPosition = null;
         teleportedTargetSerial = null;
+        routeComparedTargetSerial = null;
         recoveryAttempts = 0;
         vnavmesh.Stop();
         externalPlugins.SetNavigating(false);
@@ -364,16 +366,30 @@ public sealed class MapFlagAutomation : IDisposable
             return;
         }
 
-        if (configuration.AutoTeleport
-            && !Plugin.Condition[ConditionFlag.InCombat]
-            && teleportedTargetSerial != activeTarget.Serial
-            && BeginRoutePlanning(recovery: false))
+        if (ShouldCompareTeleportRoute())
         {
-            return;
+            if (!vnavmesh.IsReady())
+            {
+                SetState(AutomationState.WaitingForVnavmesh, "等待 vnavmesh 就绪后比较传送路线");
+                return;
+            }
+
+            routeComparedTargetSerial = activeTarget.Serial;
+            if (BeginRoutePlanning(recovery: false))
+            {
+                return;
+            }
         }
 
         ContinueToMountOrNavigate();
     }
+
+    private bool ShouldCompareTeleportRoute()
+        => activeTarget != null
+            && configuration.AutoTeleport
+            && !Plugin.Condition[ConditionFlag.InCombat]
+            && teleportedTargetSerial != activeTarget.Serial
+            && routeComparedTargetSerial != activeTarget.Serial;
 
     private void ContinueToMountOrNavigate()
     {
@@ -438,6 +454,21 @@ public sealed class MapFlagAutomation : IDisposable
         if (!vnavmesh.IsReady())
         {
             StatusText = "等待 vnavmesh 生成导航网格";
+            return;
+        }
+
+        if (ShouldCompareTeleportRoute())
+        {
+            routeComparedTargetSerial = activeTarget.Serial;
+            if (BeginRoutePlanning(recovery: false))
+            {
+                return;
+            }
+        }
+
+        if (configuration.AutoMount && !IsMounted() && !Plugin.Condition[ConditionFlag.InCombat])
+        {
+            SetState(AutomationState.Mounting, "正在上坐骑");
             return;
         }
 
@@ -665,7 +696,11 @@ public sealed class MapFlagAutomation : IDisposable
         var fly = configuration.UseFlight;
         var directTask = vnavmesh.Pathfind(Plugin.ObjectTable.LocalPlayer.Position, destination.Value, fly);
         var candidatePaths = candidates
-            .Select(candidate => new CandidatePath(candidate, vnavmesh.Pathfind(candidate.Position, destination.Value, fly)))
+            .Select(candidate =>
+            {
+                var origin = vnavmesh.NearestPoint(candidate.Position) ?? candidate.Position;
+                return new CandidatePath(candidate, origin, vnavmesh.Pathfind(origin, destination.Value, fly));
+            })
             .Where(path => path.Task != null)
             .ToList();
 
@@ -712,7 +747,7 @@ public sealed class MapFlagAutomation : IDisposable
         var bestLength = float.PositiveInfinity;
         foreach (var candidate in routePlan.CandidatePaths)
         {
-            var length = GetPathLength(candidate.Task, candidate.Candidate.Position);
+            var length = GetPathLength(candidate.Task, candidate.Origin);
             if (length < bestLength)
             {
                 best = candidate;
@@ -722,9 +757,7 @@ public sealed class MapFlagAutomation : IDisposable
 
         var shouldTeleport = best != null
             && float.IsFinite(bestLength)
-            && (routePlan.Recovery
-                || directLength - (bestLength + Math.Clamp(configuration.TeleportPenaltyDistance, 0f, 1000f))
-                    >= Math.Clamp(configuration.MinimumTeleportSaving, 0f, 2000f));
+            && (routePlan.Recovery || bestLength + 1f < directLength);
 
         routePlan = null;
         if (shouldTeleport && best != null && teleporter.Teleport(best.Candidate.Id))
@@ -802,6 +835,7 @@ public sealed class MapFlagAutomation : IDisposable
         routePlan = null;
         manualSelection = false;
         recoveryAttempts = 0;
+        routeComparedTargetSerial = null;
         externalPlugins.SetNavigating(false);
         SetState(AutomationState.Idle, "已到达，等待挖宝、战斗或新的小队坐标");
     }
@@ -815,6 +849,7 @@ public sealed class MapFlagAutomation : IDisposable
         destination = null;
         routePlan = null;
         manualSelection = false;
+        routeComparedTargetSerial = null;
         SetState(AutomationState.Error, reason);
     }
 
@@ -828,6 +863,7 @@ public sealed class MapFlagAutomation : IDisposable
         teleportArrivalPosition = null;
         manualSelection = false;
         recoveryAttempts = 0;
+        routeComparedTargetSerial = null;
         ClearGameTarget();
         if (clearDestinations)
         {
@@ -976,7 +1012,10 @@ public sealed class MapFlagAutomation : IDisposable
 
     private sealed record SenderIdentity(string Name, uint WorldId, ulong ContentId);
 
-    private sealed record CandidatePath(AetheryteCandidate Candidate, Task<List<Vector3>>? Task);
+    private sealed record CandidatePath(
+        AetheryteCandidate Candidate,
+        Vector3 Origin,
+        Task<List<Vector3>>? Task);
 
     private sealed record RoutePlan(
         long TargetSerial,

@@ -72,9 +72,6 @@ public sealed class MainWindow : Window
         ImGui.SetWindowFontScale(1f);
         ImGui.PopStyleColor();
 
-        ImGui.SameLine();
-        ImGui.TextColored(Muted, "藏宝图坐标导航 · 0.2.1");
-
         var enabled = configuration.Enabled;
         var label = !enabled ? "已关闭" : automation.IsPaused ? "已暂停" : "运行中";
         var color = !enabled ? Muted : automation.IsPaused ? Warning : Success;
@@ -259,7 +256,7 @@ public sealed class MainWindow : Window
 
         ImGui.Spacing();
         DrawSectionTitle("路线与恢复");
-        DrawCheckbox("启用以太水晶路线比较", nameof(configuration.AutoTeleport), configuration.AutoTeleport, value => configuration.AutoTeleport = value);
+        DrawCheckbox("自动传送至更近的以太水晶", nameof(configuration.AutoTeleport), configuration.AutoTeleport, value => configuration.AutoTeleport = value);
         DrawCheckbox("重新寻路后仍卡住时传送", nameof(configuration.TeleportWhenStuck), configuration.TeleportWhenStuck, value => configuration.TeleportWhenStuck = value);
 
         var stuckSeconds = configuration.StuckSeconds;
@@ -267,14 +264,6 @@ public sealed class MainWindow : Window
         if (ImGui.SliderFloat("卡住判定时间（秒）", ref stuckSeconds, 4f, 20f, "%.1f"))
         {
             configuration.StuckSeconds = stuckSeconds;
-            configuration.Save();
-        }
-
-        var minimumSaving = configuration.MinimumTeleportSaving;
-        ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderFloat("传送最低路线收益", ref minimumSaving, 0f, 600f, "%.0f y"))
-        {
-            configuration.MinimumTeleportSaving = minimumSaving;
             configuration.Save();
         }
 
@@ -292,12 +281,19 @@ public sealed class MainWindow : Window
             value => configuration.EnableAeAssistIntegration = value);
         DrawCheckbox("运行期间启用 BossMod Reborn AI", nameof(configuration.EnableBossModRebornIntegration), configuration.EnableBossModRebornIntegration,
             value => configuration.EnableBossModRebornIntegration = value);
+
+        ImGui.Spacing();
+        DrawSectionTitle("队伍与宝物库");
+        DrawCheckbox("自动接受队友传送邀请", nameof(configuration.AcceptPartyTeleportRequests), configuration.AcceptPartyTeleportRequests,
+            value => configuration.AcceptPartyTeleportRequests = value);
+        DrawCheckbox("宝物库结束且无待掷点物品时自动离开", nameof(configuration.AutoLeaveTreasureDungeon), configuration.AutoLeaveTreasureDungeon,
+            value => configuration.AutoLeaveTreasureDungeon = value);
     }
 
     private static void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.2.1");
+        DrawSectionTitle("Soumen 0.3.0");
         ImGui.TextWrapped("小队藏宝图坐标导航插件。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
