@@ -17,7 +17,6 @@ public sealed class MapFlagAutomation : IDisposable
     private const float ProgressDistance = 2f;
 
     private static readonly TimeSpan UpdateInterval = TimeSpan.FromMilliseconds(100);
-    private static readonly TimeSpan PartyRefreshInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan NavigationRetryInterval = TimeSpan.FromSeconds(1.5);
     private static readonly TimeSpan ActionRetryInterval = TimeSpan.FromSeconds(1.5);
 
@@ -34,7 +33,6 @@ public sealed class MapFlagAutomation : IDisposable
     private float progressDistance = float.MaxValue;
     private Vector3? teleportArrivalPosition;
     private DateTime nextUpdateUtc = DateTime.MinValue;
-    private DateTime nextPartyRefreshUtc = DateTime.MinValue;
     private DateTime lastMountAttemptUtc = DateTime.MinValue;
     private DateTime lastDismountAttemptUtc = DateTime.MinValue;
     private DateTime lastNavigationAttemptUtc = DateTime.MinValue;
@@ -212,10 +210,9 @@ public sealed class MapFlagAutomation : IDisposable
             mapLink.PlaceName,
             DateTime.UtcNow);
 
+        var activeSenderUpdated = activeTarget != null && IsSameSender(activeTarget, target);
         foreach (var duplicate in destinations.Values
-                     .Where(existing => existing.SenderName == target.SenderName
-                         && existing.SenderWorldId == target.SenderWorldId
-                         && existing.SenderKey != target.SenderKey)
+                     .Where(existing => IsSameSender(existing, target))
                      .Select(existing => existing.SenderKey)
                      .ToList())
         {
@@ -224,7 +221,7 @@ public sealed class MapFlagAutomation : IDisposable
 
         destinations[target.SenderKey] = target;
 
-        if (activeTarget?.SenderKey == target.SenderKey)
+        if (activeSenderUpdated)
         {
             SelectTarget(target, manualSelection);
         }
@@ -259,12 +256,6 @@ public sealed class MapFlagAutomation : IDisposable
 
         externalPlugins.RefreshRuntime();
         externalPlugins.SetNavigating(State == AutomationState.Navigating);
-
-        if (now >= nextPartyRefreshUtc && !IsLoadingOrOccupied())
-        {
-            nextPartyRefreshUtc = now + PartyRefreshInterval;
-            RemoveDepartedMembers();
-        }
 
         if (paused)
         {
@@ -844,55 +835,6 @@ public sealed class MapFlagAutomation : IDisposable
         }
     }
 
-    private unsafe void RemoveDepartedMembers()
-    {
-        var groupManager = GroupManager.Instance();
-        if (groupManager == null)
-        {
-            return;
-        }
-
-        var group = groupManager->GetGroup();
-        if (group == null)
-        {
-            return;
-        }
-
-        var contentIds = new HashSet<ulong>();
-        var nameWorldKeys = new HashSet<string>(StringComparer.Ordinal);
-        for (var i = 0; i < group->MemberCount; ++i)
-        {
-            var member = group->PartyMembers[i];
-            contentIds.Add(member.ContentId);
-            nameWorldKeys.Add($"{member.NameString}@{member.HomeWorld}");
-        }
-
-        var departed = destinations
-            .Where(pair => pair.Value.SenderContentId != 0
-                ? !contentIds.Contains(pair.Value.SenderContentId)
-                : !nameWorldKeys.Contains($"{pair.Value.SenderName}@{pair.Value.SenderWorldId}"))
-            .Select(pair => pair.Key)
-            .ToList();
-
-        if (departed.Count == 0)
-        {
-            return;
-        }
-
-        var activeDeparted = activeTarget != null && departed.Contains(activeTarget.SenderKey);
-        foreach (var key in departed)
-        {
-            destinations.Remove(key);
-        }
-
-        if (activeDeparted)
-        {
-            ResetNavigation(clearDestinations: false);
-            SetState(paused ? AutomationState.Paused : AutomationState.Idle,
-                paused ? "当前坐标发送者已离队，已取消该目的地" : "当前坐标发送者已离队，等待新坐标");
-        }
-    }
-
     private static unsafe SenderIdentity ResolveSender(SeString sender)
     {
         var source = sender.Payloads.OfType<PlayerPayload>().FirstOrDefault();
@@ -916,6 +858,23 @@ public sealed class MapFlagAutomation : IDisposable
         }
 
         return new SenderIdentity(name, worldId, contentId);
+    }
+
+    private static bool IsSameSender(MapFlagTarget first, MapFlagTarget second)
+    {
+        if (first.SenderContentId != 0 && second.SenderContentId != 0)
+        {
+            return first.SenderContentId == second.SenderContentId;
+        }
+
+        if (!string.Equals(first.SenderName.Trim(), second.SenderName.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return first.SenderWorldId == 0
+            || second.SenderWorldId == 0
+            || first.SenderWorldId == second.SenderWorldId;
     }
 
     private Vector3? ResolveDestination(MapFlagTarget target)
