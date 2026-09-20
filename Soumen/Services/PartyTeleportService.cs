@@ -12,10 +12,10 @@ public sealed unsafe class PartyTeleportService : IDisposable
     private const uint TeleportOfferAddonRow = 1800;
 
     private readonly Configuration configuration;
-    private readonly Action onTeleportAccepted;
+    private readonly System.Action onTeleportAccepted;
     private readonly string[] promptFragments;
 
-    public PartyTeleportService(Configuration configuration, Action onTeleportAccepted)
+    public PartyTeleportService(Configuration configuration, System.Action onTeleportAccepted)
     {
         this.configuration = configuration;
         this.onTeleportAccepted = onTeleportAccepted;
