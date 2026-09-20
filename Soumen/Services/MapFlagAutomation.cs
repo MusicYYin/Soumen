@@ -20,9 +20,13 @@ public sealed class MapFlagAutomation : IDisposable
     private static readonly TimeSpan NavigationRetryInterval = TimeSpan.FromSeconds(1.5);
     private static readonly TimeSpan ActionRetryInterval = TimeSpan.FromSeconds(1.5);
     private static readonly TimeSpan RoutePlanningTimeout = TimeSpan.FromSeconds(8);
-    private static readonly TimeSpan TeleportRetryDelay = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan TeleportPrepareDelay = TimeSpan.FromMilliseconds(600);
+    private static readonly TimeSpan TeleportPrepareTimeout = TimeSpan.FromSeconds(12);
+    private static readonly TimeSpan TeleportStartTimeout = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan TeleportCancelledTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan TeleportConfirmationTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan PartyTeleportTimeout = TimeSpan.FromSeconds(20);
+    private const int MaxTeleportAttempts = 2;
 
     private readonly Configuration configuration;
     private readonly VNavmeshIpc vnavmesh;
@@ -41,11 +45,15 @@ public sealed class MapFlagAutomation : IDisposable
     private DateTime lastDismountAttemptUtc = DateTime.MinValue;
     private DateTime lastNavigationAttemptUtc = DateTime.MinValue;
     private DateTime lastProgressUtc = DateTime.UtcNow;
+    private DateTime teleportPreparedUtc = DateTime.MinValue;
     private DateTime teleportIssuedUtc = DateTime.MinValue;
     private DateTime? partyTeleportAcceptedUtc;
     private uint? teleportAetheryteId;
+    private string? teleportAetheryteName;
     private long? teleportedTargetSerial;
     private long? routeComparedTargetSerial;
+    private uint teleportOriginTerritoryId;
+    private Vector3? teleportOriginPosition;
     private long serial;
     private int recoveryAttempts;
     private int teleportAttemptCount;
@@ -407,7 +415,7 @@ public sealed class MapFlagAutomation : IDisposable
                 if (BeginTeleport(nearest))
                 {
                     routeComparedTargetSerial = activeTarget.Serial;
-                    StatusText = $"正在传送至目标地图最近的以太水晶 #{nearest.Id}";
+                    StatusText = $"正在准备传送至 {nearest.Name}";
                     return;
                 }
 
@@ -831,6 +839,14 @@ public sealed class MapFlagAutomation : IDisposable
             && float.IsFinite(bestLength)
             && (routePlan.Recovery || bestLength < directLength);
 
+        Plugin.Log.Information(
+            "Route comparison for target {TargetSerial}: direct={DirectLength:F1}, bestAetheryte={AetheryteName}, best={BestLength:F1}, teleport={ShouldTeleport}.",
+            activeTarget.Serial,
+            directLength,
+            best?.Candidate.Name ?? "none",
+            bestLength,
+            shouldTeleport);
+
         routePlan = null;
         if (shouldTeleport && best != null && BeginTeleport(best.Candidate))
         {
@@ -840,7 +856,7 @@ public sealed class MapFlagAutomation : IDisposable
         ContinueToMountOrNavigate();
     }
 
-    private void ProcessTeleporting(DateTime now)
+    private unsafe void ProcessTeleporting(DateTime now)
     {
         if (activeTarget == null)
         {
@@ -848,10 +864,27 @@ public sealed class MapFlagAutomation : IDisposable
             return;
         }
 
-        if (Plugin.Condition[ConditionFlag.Casting])
+        if (teleportIssuedUtc == DateTime.MinValue
+            && now - teleportPreparedUtc >= TeleportPrepareTimeout)
+        {
+            Plugin.Log.Warning("Teleport preparation timed out; continuing by navigation.");
+            ResetTeleportState();
+            ContinueAfterTeleportFailure();
+            return;
+        }
+
+        externalPlugins.SetNavigating(false);
+        if (Plugin.Condition.Any(ConditionFlag.Casting, ConditionFlag.Casting87))
         {
             teleportSawCasting = true;
             StatusText = "传送施法中";
+            return;
+        }
+
+        if (vnavmesh.IsBusy())
+        {
+            vnavmesh.Stop();
+            StatusText = "正在停止导航，等待人物静止";
             return;
         }
 
@@ -865,9 +898,17 @@ public sealed class MapFlagAutomation : IDisposable
         var player = Plugin.ObjectTable.LocalPlayer;
         var arrivedNearCrystal = player != null
             && teleportArrivalPosition != null
-            && HorizontalDistance(player.Position, teleportArrivalPosition.Value) < 100f;
+            && HorizontalDistance(player.Position, teleportArrivalPosition.Value) < 150f;
+        var movedSinceRequest = player != null
+            && teleportOriginPosition != null
+            && HorizontalDistance(player.Position, teleportOriginPosition.Value) >= 3f;
+        var arrivedInTargetTerritory = Plugin.ClientState.TerritoryType == activeTarget.TerritoryId;
 
-        if (teleportSawLoading && arrivedNearCrystal)
+        if (teleportSawLoading
+            && arrivedInTargetTerritory
+            && (teleportOriginTerritoryId != Plugin.ClientState.TerritoryType
+                || movedSinceRequest
+                || arrivedNearCrystal))
         {
             teleportedTargetSerial = activeTarget.Serial;
             destination = null;
@@ -876,19 +917,77 @@ public sealed class MapFlagAutomation : IDisposable
             return;
         }
 
-        var elapsed = now - teleportIssuedUtc;
-        if (teleportAttemptCount == 1
-            && elapsed >= TeleportRetryDelay
-            && !teleportSawCasting
-            && !teleportSawLoading
-            && !arrivedNearCrystal
-            && teleportAetheryteId is { } aetheryteId)
+        if (teleportIssuedUtc == DateTime.MinValue)
         {
-            PrepareForTeleportAttempt();
-            SetState(AutomationState.Teleporting, $"传送未确认，正在重试以太水晶 #{aetheryteId}");
-            if (!teleporter.Teleport(aetheryteId))
+            if (Plugin.Condition[ConditionFlag.InCombat])
             {
-                Plugin.Log.Warning("Teleport retry could not be issued; continuing without teleport.");
+                Plugin.Log.Information("Teleport preparation was interrupted by combat; continuing by navigation.");
+                ResetTeleportState();
+                ContinueAfterTeleportFailure();
+                return;
+            }
+
+            if (IsMounted())
+            {
+                StatusText = Plugin.Condition[ConditionFlag.InFlight]
+                    ? "正在落地，准备传送"
+                    : "正在下坐骑，准备传送";
+                if (!Plugin.Condition.Any(
+                        ConditionFlag.Jumping,
+                        ConditionFlag.Jumping61,
+                        ConditionFlag.MountOrOrnamentTransition)
+                    && now - lastDismountAttemptUtc >= ActionRetryInterval)
+                {
+                    lastDismountAttemptUtc = now;
+                    var actionManager = ActionManager.Instance();
+                    if (actionManager == null)
+                    {
+                        return;
+                    }
+
+                    if (Plugin.Condition[ConditionFlag.InFlight])
+                    {
+                        actionManager->UseAction(ActionType.GeneralAction, 23);
+                    }
+                    else if (actionManager->GetActionStatus(ActionType.Mount, 0) == 0)
+                    {
+                        actionManager->UseAction(ActionType.Mount, 0);
+                    }
+                    else
+                    {
+                        actionManager->UseAction(ActionType.GeneralAction, 23);
+                    }
+                }
+
+                return;
+            }
+
+            if (Plugin.Condition.Any(
+                    ConditionFlag.BeingMoved,
+                    ConditionFlag.Jumping,
+                    ConditionFlag.Jumping61,
+                    ConditionFlag.MountOrOrnamentTransition))
+            {
+                vnavmesh.Stop();
+                StatusText = "等待人物完全静止后传送";
+                return;
+            }
+
+            if (now - teleportPreparedUtc < TeleportPrepareDelay)
+            {
+                StatusText = "正在停止移动，准备传送";
+                return;
+            }
+
+            if (!TeleportService.CanTeleportNow())
+            {
+                StatusText = "等待传送技能可用";
+                return;
+            }
+
+            if (teleportAetheryteId is not { } aetheryteId || !teleporter.Teleport(aetheryteId))
+            {
+                Plugin.Log.Warning("Teleport request could not be submitted; continuing by navigation.");
                 ResetTeleportState();
                 ContinueAfterTeleportFailure();
                 return;
@@ -898,6 +997,42 @@ public sealed class MapFlagAutomation : IDisposable
             teleportIssuedUtc = now;
             teleportSawCasting = false;
             teleportSawLoading = false;
+            SetState(
+                AutomationState.Teleporting,
+                teleportAttemptCount == 1
+                    ? $"正在传送至 {teleportAetheryteName}"
+                    : $"正在重试传送至 {teleportAetheryteName}");
+            return;
+        }
+
+        var elapsed = now - teleportIssuedUtc;
+        var requestStalled = !teleportSawLoading
+            && ((!teleportSawCasting && elapsed >= TeleportStartTimeout)
+                || (teleportSawCasting && elapsed >= TeleportCancelledTimeout));
+        if (requestStalled)
+        {
+            if (teleportAttemptCount < MaxTeleportAttempts)
+            {
+                Plugin.Log.Warning(
+                    "Teleport to {AetheryteName} did not start; retrying ({Attempt}/{MaxAttempts}).",
+                    teleportAetheryteName,
+                    teleportAttemptCount + 1,
+                    MaxTeleportAttempts);
+                PrepareForTeleportAttempt();
+                teleportPreparedUtc = now;
+                teleportIssuedUtc = DateTime.MinValue;
+                teleportSawCasting = false;
+                teleportSawLoading = false;
+                StatusText = $"传送未开始，准备重试 {teleportAetheryteName}";
+                return;
+            }
+
+            Plugin.Log.Warning(
+                "Teleport to {AetheryteName} did not start after {AttemptCount} attempts; continuing by navigation.",
+                teleportAetheryteName,
+                teleportAttemptCount);
+            ResetTeleportState();
+            ContinueAfterTeleportFailure();
             return;
         }
 
@@ -961,26 +1096,18 @@ public sealed class MapFlagAutomation : IDisposable
 
     private bool BeginTeleport(AetheryteCandidate candidate)
     {
-        var previousState = State;
-        var previousStatus = StatusText;
         PrepareForTeleportAttempt();
-        SetState(AutomationState.Teleporting, $"正在准备传送至以太水晶 #{candidate.Id}");
-
-        if (!teleporter.Teleport(candidate.Id))
-        {
-            SetState(
-                previousState == AutomationState.Navigating ? AutomationState.WaitingForPlayer : previousState,
-                previousState == AutomationState.Navigating ? "导航已停止，等待重新规划传送" : previousStatus);
-            return false;
-        }
-
         teleportAetheryteId = candidate.Id;
+        teleportAetheryteName = candidate.Name;
         teleportArrivalPosition = candidate.Position;
-        teleportAttemptCount = 1;
-        teleportIssuedUtc = DateTime.UtcNow;
+        teleportOriginTerritoryId = Plugin.ClientState.TerritoryType;
+        teleportOriginPosition = Plugin.ObjectTable.LocalPlayer?.Position;
+        teleportAttemptCount = 0;
+        teleportPreparedUtc = DateTime.UtcNow;
+        teleportIssuedUtc = DateTime.MinValue;
         teleportSawCasting = false;
         teleportSawLoading = false;
-        SetState(AutomationState.Teleporting, $"正在传送至以太水晶 #{candidate.Id}");
+        SetState(AutomationState.Teleporting, $"正在停止导航，准备传送至 {candidate.Name}");
         return true;
     }
 
@@ -997,8 +1124,12 @@ public sealed class MapFlagAutomation : IDisposable
     private void ResetTeleportState()
     {
         teleportAetheryteId = null;
+        teleportAetheryteName = null;
         teleportArrivalPosition = null;
+        teleportOriginTerritoryId = 0;
+        teleportOriginPosition = null;
         teleportAttemptCount = 0;
+        teleportPreparedUtc = DateTime.MinValue;
         teleportIssuedUtc = DateTime.MinValue;
         teleportSawCasting = false;
         teleportSawLoading = false;
