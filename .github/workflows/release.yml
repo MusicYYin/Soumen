@@ -52,10 +52,11 @@ jobs:
         shell: pwsh
         run: |
           $output = "Soumen/bin/x64/Release/Soumen"
-          if (-not (Test-Path "$output/Soumen.dll")) {
-            throw "Soumen.dll was not generated."
+          $package = "$output/latest.zip"
+          if (-not (Test-Path $package)) {
+            throw "Dalamud package latest.zip was not generated."
           }
-          Compress-Archive -Path "$output/*" -DestinationPath Soumen.zip -Force
+          Copy-Item $package Soumen.zip -Force
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3
