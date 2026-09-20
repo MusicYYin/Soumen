@@ -22,6 +22,7 @@ public sealed class MapFlagAutomation : IDisposable
     private static readonly TimeSpan RoutePlanningTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan TeleportRetryDelay = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan TeleportConfirmationTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan PartyTeleportTimeout = TimeSpan.FromSeconds(20);
 
     private readonly Configuration configuration;
     private readonly VNavmeshIpc vnavmesh;
@@ -41,6 +42,7 @@ public sealed class MapFlagAutomation : IDisposable
     private DateTime lastNavigationAttemptUtc = DateTime.MinValue;
     private DateTime lastProgressUtc = DateTime.UtcNow;
     private DateTime teleportIssuedUtc = DateTime.MinValue;
+    private DateTime? partyTeleportAcceptedUtc;
     private uint? teleportAetheryteId;
     private long? teleportedTargetSerial;
     private long? routeComparedTargetSerial;
@@ -51,6 +53,7 @@ public sealed class MapFlagAutomation : IDisposable
     private bool paused;
     private bool teleportSawCasting;
     private bool teleportSawLoading;
+    private bool partyTeleportSawLoading;
     private bool disposed;
 
     public MapFlagAutomation(Configuration configuration)
@@ -145,6 +148,23 @@ public sealed class MapFlagAutomation : IDisposable
         ResetNavigation(clearDestinations: false);
         SetState(configuration.Enabled ? AutomationState.Idle : AutomationState.Disabled,
             configuration.Enabled ? reason : "自动化已关闭");
+    }
+
+    public void PrepareForPartyTeleport()
+    {
+        if (!configuration.Enabled || paused || activeTarget == null)
+        {
+            return;
+        }
+
+        vnavmesh.Stop();
+        externalPlugins.SetNavigating(false);
+        destination = null;
+        routePlan = null;
+        ResetTeleportState();
+        partyTeleportAcceptedUtc = DateTime.UtcNow;
+        partyTeleportSawLoading = false;
+        SetState(AutomationState.WaitingForPlayer, "已接受队友传送，等待传送后重新寻路");
     }
 
     public bool NavigateTo(long targetSerial)
@@ -271,6 +291,24 @@ public sealed class MapFlagAutomation : IDisposable
                 SetState(AutomationState.Paused, "已暂停");
             }
 
+            return;
+        }
+
+        if (partyTeleportAcceptedUtc != null)
+        {
+            ProcessPartyTeleport(now);
+            return;
+        }
+
+        if (activeTarget != null
+            && State != AutomationState.Teleporting
+            && IsLoadingOrOccupied())
+        {
+            vnavmesh.Stop();
+            externalPlugins.SetNavigating(false);
+            destination = null;
+            routePlan = null;
+            SetState(AutomationState.WaitingForPlayer, "传送或读图中，完成后重新寻路");
             return;
         }
 
@@ -851,6 +889,42 @@ public sealed class MapFlagAutomation : IDisposable
         }
     }
 
+    private void ProcessPartyTeleport(DateTime now)
+    {
+        if (activeTarget == null)
+        {
+            ResetPartyTeleportState();
+            SetState(AutomationState.Idle, "等待小队坐标");
+            return;
+        }
+
+        if (Plugin.Condition[ConditionFlag.Casting])
+        {
+            StatusText = "队友传送施法中";
+            return;
+        }
+
+        if (IsLoadingOrOccupied())
+        {
+            partyTeleportSawLoading = true;
+            StatusText = "队友传送读图中";
+            return;
+        }
+
+        var timedOut = now - partyTeleportAcceptedUtc!.Value >= PartyTeleportTimeout;
+        if (!partyTeleportSawLoading && !timedOut)
+        {
+            return;
+        }
+
+        destination = null;
+        routePlan = null;
+        ResetPartyTeleportState();
+        SetState(
+            AutomationState.WaitingForPlayer,
+            timedOut ? "队友传送未发生，重新寻路" : "队友传送完成，重新寻路");
+    }
+
     private bool BeginTeleport(AetheryteCandidate candidate)
     {
         if (!teleporter.Teleport(candidate.Id))
@@ -903,6 +977,7 @@ public sealed class MapFlagAutomation : IDisposable
         destination = null;
         routePlan = null;
         ResetTeleportState();
+        ResetPartyTeleportState();
         manualSelection = false;
         recoveryAttempts = 0;
         routeComparedTargetSerial = null;
@@ -919,6 +994,7 @@ public sealed class MapFlagAutomation : IDisposable
         destination = null;
         routePlan = null;
         ResetTeleportState();
+        ResetPartyTeleportState();
         manualSelection = false;
         routeComparedTargetSerial = null;
         SetState(AutomationState.Error, reason);
@@ -932,6 +1008,7 @@ public sealed class MapFlagAutomation : IDisposable
         destination = null;
         routePlan = null;
         ResetTeleportState();
+        ResetPartyTeleportState();
         manualSelection = false;
         recoveryAttempts = 0;
         routeComparedTargetSerial = null;
@@ -1073,6 +1150,12 @@ public sealed class MapFlagAutomation : IDisposable
         progressAnchor = position;
         progressDistance = distance;
         lastProgressUtc = now;
+    }
+
+    private void ResetPartyTeleportState()
+    {
+        partyTeleportAcceptedUtc = null;
+        partyTeleportSawLoading = false;
     }
 
     private void SetState(AutomationState state, string status)

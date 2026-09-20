@@ -36,7 +36,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         configuration = Configuration.Load(PluginInterface);
         automation = new MapFlagAutomation(configuration);
-        partyTeleportService = new PartyTeleportService(configuration);
+        partyTeleportService = new PartyTeleportService(configuration, automation.PrepareForPartyTeleport);
         treasureDungeonAutomation = new TreasureDungeonAutomation(configuration);
         mainWindow = new MainWindow(configuration, automation);
         windowSystem.AddWindow(mainWindow);
