@@ -884,6 +884,8 @@ public sealed class MapFlagAutomation : IDisposable
             && !arrivedNearCrystal
             && teleportAetheryteId is { } aetheryteId)
         {
+            PrepareForTeleportAttempt();
+            SetState(AutomationState.Teleporting, $"传送未确认，正在重试以太水晶 #{aetheryteId}");
             if (!teleporter.Teleport(aetheryteId))
             {
                 Plugin.Log.Warning("Teleport retry could not be issued; continuing without teleport.");
@@ -896,7 +898,6 @@ public sealed class MapFlagAutomation : IDisposable
             teleportIssuedUtc = now;
             teleportSawCasting = false;
             teleportSawLoading = false;
-            SetState(AutomationState.Teleporting, $"传送未确认，正在重试以太水晶 #{aetheryteId}");
             return;
         }
 
@@ -960,8 +961,16 @@ public sealed class MapFlagAutomation : IDisposable
 
     private bool BeginTeleport(AetheryteCandidate candidate)
     {
+        var previousState = State;
+        var previousStatus = StatusText;
+        PrepareForTeleportAttempt();
+        SetState(AutomationState.Teleporting, $"正在准备传送至以太水晶 #{candidate.Id}");
+
         if (!teleporter.Teleport(candidate.Id))
         {
+            SetState(
+                previousState == AutomationState.Navigating ? AutomationState.WaitingForPlayer : previousState,
+                previousState == AutomationState.Navigating ? "导航已停止，等待重新规划传送" : previousStatus);
             return false;
         }
 
@@ -973,6 +982,16 @@ public sealed class MapFlagAutomation : IDisposable
         teleportSawLoading = false;
         SetState(AutomationState.Teleporting, $"正在传送至以太水晶 #{candidate.Id}");
         return true;
+    }
+
+    private void PrepareForTeleportAttempt()
+    {
+        // Teleport casts are cancelled by movement. Always tear down navigation before
+        // issuing or retrying a teleport, regardless of the state that called us.
+        vnavmesh.Stop();
+        externalPlugins.SetNavigating(false);
+        destination = null;
+        routePlan = null;
     }
 
     private void ResetTeleportState()
