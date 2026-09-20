@@ -19,6 +19,9 @@ public sealed class MapFlagAutomation : IDisposable
     private static readonly TimeSpan UpdateInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan NavigationRetryInterval = TimeSpan.FromSeconds(1.5);
     private static readonly TimeSpan ActionRetryInterval = TimeSpan.FromSeconds(1.5);
+    private static readonly TimeSpan RoutePlanningTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan TeleportRetryDelay = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan TeleportConfirmationTimeout = TimeSpan.FromSeconds(30);
 
     private readonly Configuration configuration;
     private readonly VNavmeshIpc vnavmesh;
@@ -38,12 +41,15 @@ public sealed class MapFlagAutomation : IDisposable
     private DateTime lastNavigationAttemptUtc = DateTime.MinValue;
     private DateTime lastProgressUtc = DateTime.UtcNow;
     private DateTime teleportIssuedUtc = DateTime.MinValue;
+    private uint? teleportAetheryteId;
     private long? teleportedTargetSerial;
     private long? routeComparedTargetSerial;
     private long serial;
     private int recoveryAttempts;
+    private int teleportAttemptCount;
     private bool manualSelection;
     private bool paused;
+    private bool teleportSawCasting;
     private bool teleportSawLoading;
     private bool disposed;
 
@@ -313,7 +319,7 @@ public sealed class MapFlagAutomation : IDisposable
         manualSelection = isManual;
         destination = null;
         routePlan = null;
-        teleportArrivalPosition = null;
+        ResetTeleportState();
         teleportedTargetSerial = null;
         routeComparedTargetSerial = null;
         recoveryAttempts = 0;
@@ -711,7 +717,13 @@ public sealed class MapFlagAutomation : IDisposable
 
         vnavmesh.Stop();
         externalPlugins.SetNavigating(false);
-        routePlan = new RoutePlan(activeTarget.Serial, recovery, destination.Value, directTask, candidatePaths);
+        routePlan = new RoutePlan(
+            activeTarget.Serial,
+            recovery,
+            destination.Value,
+            DateTime.UtcNow,
+            directTask,
+            candidatePaths);
         SetState(AutomationState.PlanningRoute,
             recovery ? "重新寻路仍停滞，正在计算以太水晶方案" : "正在比较直达与传送路线");
         return true;
@@ -730,8 +742,9 @@ public sealed class MapFlagAutomation : IDisposable
             .Where(path => path.Task != null)
             .Select(path => path.Task!)
             .ToList();
-        if ((routePlan.DirectTask != null && !routePlan.DirectTask.IsCompleted)
-            || tasks.Any(task => !task.IsCompleted))
+        var allTasksCompleted = (routePlan.DirectTask == null || routePlan.DirectTask.IsCompleted)
+            && tasks.All(task => task.IsCompleted);
+        if (!allTasksCompleted && DateTime.UtcNow - routePlan.StartedUtc < RoutePlanningTimeout)
         {
             return;
         }
@@ -760,13 +773,8 @@ public sealed class MapFlagAutomation : IDisposable
             && (routePlan.Recovery || bestLength + 1f < directLength);
 
         routePlan = null;
-        if (shouldTeleport && best != null && teleporter.Teleport(best.Candidate.Id))
+        if (shouldTeleport && best != null && BeginTeleport(best.Candidate))
         {
-            teleportedTargetSerial = activeTarget.Serial;
-            teleportArrivalPosition = best.Candidate.Position;
-            teleportIssuedUtc = DateTime.UtcNow;
-            teleportSawLoading = false;
-            SetState(AutomationState.Teleporting, $"正在传送至以太水晶 #{best.Candidate.Id}");
             return;
         }
 
@@ -778,6 +786,13 @@ public sealed class MapFlagAutomation : IDisposable
         if (activeTarget == null)
         {
             SetState(AutomationState.Idle, "等待小队坐标");
+            return;
+        }
+
+        if (Plugin.Condition[ConditionFlag.Casting])
+        {
+            teleportSawCasting = true;
+            StatusText = "传送施法中";
             return;
         }
 
@@ -793,20 +808,74 @@ public sealed class MapFlagAutomation : IDisposable
             && teleportArrivalPosition != null
             && HorizontalDistance(player.Position, teleportArrivalPosition.Value) < 100f;
 
-        if (teleportSawLoading
-            || (arrivedNearCrystal && now - teleportIssuedUtc > TimeSpan.FromSeconds(8)))
+        if (teleportSawLoading && arrivedNearCrystal)
         {
+            teleportedTargetSerial = activeTarget.Serial;
             destination = null;
-            teleportArrivalPosition = null;
+            ResetTeleportState();
             SetState(AutomationState.WaitingForPlayer, "传送完成，重新规划前往坐标");
             return;
         }
 
-        if (now - teleportIssuedUtc > TimeSpan.FromSeconds(20))
+        var elapsed = now - teleportIssuedUtc;
+        if (teleportAttemptCount == 1
+            && elapsed >= TeleportRetryDelay
+            && !teleportSawCasting
+            && !teleportSawLoading
+            && !arrivedNearCrystal
+            && teleportAetheryteId is { } aetheryteId)
         {
-            teleportArrivalPosition = null;
+            if (!teleporter.Teleport(aetheryteId))
+            {
+                Plugin.Log.Warning("Teleport retry could not be issued; continuing without teleport.");
+                ResetTeleportState();
+                ContinueToMountOrNavigate();
+                return;
+            }
+
+            teleportAttemptCount++;
+            teleportIssuedUtc = now;
+            teleportSawCasting = false;
+            teleportSawLoading = false;
+            SetState(AutomationState.Teleporting, $"传送未确认，正在重试以太水晶 #{aetheryteId}");
+            return;
+        }
+
+        if (elapsed >= TeleportConfirmationTimeout)
+        {
+            Plugin.Log.Warning(
+                "Teleport was not confirmed after {AttemptCount} attempt(s); continuing without teleport.",
+                teleportAttemptCount);
+            ResetTeleportState();
             ContinueToMountOrNavigate();
         }
+    }
+
+    private bool BeginTeleport(AetheryteCandidate candidate)
+    {
+        if (!teleporter.Teleport(candidate.Id))
+        {
+            return false;
+        }
+
+        teleportAetheryteId = candidate.Id;
+        teleportArrivalPosition = candidate.Position;
+        teleportAttemptCount = 1;
+        teleportIssuedUtc = DateTime.UtcNow;
+        teleportSawCasting = false;
+        teleportSawLoading = false;
+        SetState(AutomationState.Teleporting, $"正在传送至以太水晶 #{candidate.Id}");
+        return true;
+    }
+
+    private void ResetTeleportState()
+    {
+        teleportAetheryteId = null;
+        teleportArrivalPosition = null;
+        teleportAttemptCount = 0;
+        teleportIssuedUtc = DateTime.MinValue;
+        teleportSawCasting = false;
+        teleportSawLoading = false;
     }
 
     private void CompleteArrival()
@@ -833,6 +902,7 @@ public sealed class MapFlagAutomation : IDisposable
         activeTarget = null;
         destination = null;
         routePlan = null;
+        ResetTeleportState();
         manualSelection = false;
         recoveryAttempts = 0;
         routeComparedTargetSerial = null;
@@ -848,6 +918,7 @@ public sealed class MapFlagAutomation : IDisposable
         activeTarget = null;
         destination = null;
         routePlan = null;
+        ResetTeleportState();
         manualSelection = false;
         routeComparedTargetSerial = null;
         SetState(AutomationState.Error, reason);
@@ -860,7 +931,7 @@ public sealed class MapFlagAutomation : IDisposable
         activeTarget = null;
         destination = null;
         routePlan = null;
-        teleportArrivalPosition = null;
+        ResetTeleportState();
         manualSelection = false;
         recoveryAttempts = 0;
         routeComparedTargetSerial = null;
@@ -1021,6 +1092,7 @@ public sealed class MapFlagAutomation : IDisposable
         long TargetSerial,
         bool Recovery,
         Vector3 Destination,
+        DateTime StartedUtc,
         Task<List<Vector3>>? DirectTask,
         IReadOnlyList<CandidatePath> CandidatePaths);
 }

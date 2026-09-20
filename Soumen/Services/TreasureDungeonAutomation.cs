@@ -3,25 +3,12 @@ using Dalamud.Game.DutyState;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Event;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using Lumina.Excel.Sheets;
 
 namespace Soumen.Services;
 
 public sealed class TreasureDungeonAutomation : IDisposable
 {
-    private static readonly HashSet<uint> TreasureDungeonTerritories =
-    [
-        558,  // The Aquapolis
-        712,  // The Lost Canals of Uznair
-        725,  // The Hidden Canals of Uznair
-        794,  // The Shifting Altars of Uznair
-        879,  // The Dungeons of Lyhe Ghiah
-        924,  // The Shifting Oubliettes of Lyhe Ghiah
-        1000, // The Excitatron 6000
-        1123, // The Shifting Gymnasion Agonon
-        1209, // Cenote Ja Ja Gural
-        1279, // Vault Oneiron
-    ];
-
     private static readonly TimeSpan MinimumExitDelay = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan EmptyLootDelay = TimeSpan.FromSeconds(3);
 
@@ -49,7 +36,7 @@ public sealed class TreasureDungeonAutomation : IDisposable
         var territory = Plugin.ClientState.TerritoryType;
         if (!configuration.Enabled
             || !configuration.AutoLeaveTreasureDungeon
-            || !TreasureDungeonTerritories.Contains(territory))
+            || !IsTreasureDungeon())
         {
             return;
         }
@@ -90,7 +77,7 @@ public sealed class TreasureDungeonAutomation : IDisposable
         }
 
         var now = DateTime.UtcNow;
-        if (HasRollableLoot())
+        if (HasPendingLootDistribution())
         {
             noLootSinceUtc = null;
             return;
@@ -112,7 +99,20 @@ public sealed class TreasureDungeonAutomation : IDisposable
         return gameMain != null && gameMain->CurrentContentFinderConditionId != 0;
     }
 
-    private static unsafe bool HasRollableLoot()
+    private static unsafe bool IsTreasureDungeon()
+    {
+        var gameMain = GameMain.Instance();
+        var conditionId = gameMain == null ? 0 : gameMain->CurrentContentFinderConditionId;
+        if (conditionId == 0)
+        {
+            return false;
+        }
+
+        var condition = Plugin.DataManager.GetExcelSheet<ContentFinderCondition>().GetRow((uint)conditionId);
+        return condition.ContentType.RowId == 9;
+    }
+
+    private static unsafe bool HasPendingLootDistribution()
     {
         var loot = Loot.Instance();
         if (loot == null)
@@ -123,15 +123,15 @@ public sealed class TreasureDungeonAutomation : IDisposable
         foreach (var item in loot->Items)
         {
             if (item.ChestObjectId is 0 or 0xE0000000
-                || item.ItemId == 0
-                || item.RollResult != RollResult.UnAwarded
-                || item.RollState is RollState.Rolled or RollState.Unavailable or RollState.Unknown
-                || item.LootMode is LootMode.LootMasterGreedOnly or LootMode.Unavailable)
+                || item.ItemId == 0)
             {
                 continue;
             }
 
-            return true;
+            if (item.RollResult != RollResult.Awarded)
+            {
+                return true;
+            }
         }
 
         return false;
