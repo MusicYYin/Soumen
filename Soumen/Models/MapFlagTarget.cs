@@ -5,6 +5,9 @@ namespace Soumen.Models;
 public sealed record MapFlagTarget(
     long Serial,
     string Sender,
+    string SenderName,
+    uint SenderWorldId,
+    ulong SenderContentId,
     uint TerritoryId,
     uint MapId,
     int RawX,
@@ -14,6 +17,11 @@ public sealed record MapFlagTarget(
     string PlaceName,
     DateTime ReceivedAtUtc)
 {
+    public string SenderKey
+        => SenderContentId != 0
+            ? $"cid:{SenderContentId}"
+            : $"name:{SenderName}@{SenderWorldId}";
+
     public Vector3 ToWorld(float height)
         => new(RawX / 1000f, height, RawY / 1000f);
 }

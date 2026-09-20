@@ -9,6 +9,7 @@ public sealed class VNavmeshIpc
     private readonly IDalamudPluginInterface pluginInterface;
     private readonly ICallGateSubscriber<bool> isReady;
     private readonly ICallGateSubscriber<Vector3, bool, float, bool> moveCloseTo;
+    private readonly ICallGateSubscriber<Vector3, Vector3, bool, Task<List<Vector3>>> pathfind;
     private readonly ICallGateSubscriber<bool> isRunning;
     private readonly ICallGateSubscriber<bool> pathfindInProgress;
     private readonly ICallGateSubscriber<Vector3?> flagToPoint;
@@ -21,6 +22,8 @@ public sealed class VNavmeshIpc
         isReady = pluginInterface.GetIpcSubscriber<bool>("vnavmesh.Nav.IsReady");
         moveCloseTo = pluginInterface.GetIpcSubscriber<Vector3, bool, float, bool>(
             "vnavmesh.SimpleMove.PathfindAndMoveCloseTo");
+        pathfind = pluginInterface.GetIpcSubscriber<Vector3, Vector3, bool, Task<List<Vector3>>>(
+            "vnavmesh.Nav.Pathfind");
         isRunning = pluginInterface.GetIpcSubscriber<bool>("vnavmesh.Path.IsRunning");
         pathfindInProgress = pluginInterface.GetIpcSubscriber<bool>(
             "vnavmesh.SimpleMove.PathfindInProgress");
@@ -90,6 +93,18 @@ public sealed class VNavmeshIpc
         catch
         {
             return false;
+        }
+    }
+
+    public Task<List<Vector3>>? Pathfind(Vector3 from, Vector3 to, bool fly)
+    {
+        try
+        {
+            return pathfind.InvokeFunc(from, to, fly);
+        }
+        catch
+        {
+            return null;
         }
     }
 

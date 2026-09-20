@@ -20,6 +20,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static ICondition Condition { get; private set; } = null!;
     [PluginService] internal static ITargetManager TargetManager { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
+    [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     private readonly WindowSystem windowSystem = new("Soumen");
@@ -36,7 +37,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "打开 Soumen；可用参数：on、off、stop",
+            HelpMessage = "打开 Soumen；可用参数：on、off、pause、resume、stop",
         });
 
         PluginInterface.UiBuilder.Draw += windowSystem.Draw;
@@ -67,6 +68,12 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "stop":
                 automation.Stop();
+                break;
+            case "pause":
+                automation.SetPaused(true);
+                break;
+            case "resume":
+                automation.SetPaused(false);
                 break;
             default:
                 mainWindow.Toggle();

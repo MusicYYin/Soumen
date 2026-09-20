@@ -1,37 +1,43 @@
 # Soumen 架构说明
 
-## 目标
+## 目的地模型
 
-首个里程碑只解决一件事：可靠地把队伍聊天中的同地图坐标链接转成可中止、可观察的 vnavmesh 导航任务。
+Soumen 不把坐标列表视为依次执行的队列。列表只保存仍在小队中、并且实际发送过坐标的成员。每位成员仅保留最新坐标，内部优先以 Content ID 作为身份键，无法取得 Content ID 时回退到角色名与服务器。
+
+没有手动选择时，最新聊天坐标成为当前目标。点击“导航至此”后，该目标自动锁定；其他成员的新坐标仍进入列表，但不会抢占当前导航。当前发送者更新自己的坐标时，锁定目标随之更新。
+
+到达后删除同 Territory、Map 且显示坐标 X、Y 均在 ±0.5 范围内的条目，随后进入待命，不自动选择剩余坐标。
 
 ## 数据流
 
-1. `IChatGui.ChatMessage` 收到聊天事件。
-2. 仅接受 `Party` 与 `CrossParty`，直接读取 `MapLinkPayload`。
-3. 复制 Territory、Map、RawX、RawY、显示坐标和发送者，不持有聊天事件对象。
-4. 500ms 防抖期间只保留最新坐标。
-5. 等传送、读图和过场状态结束，再比较当前 Territory。
-6. 使用 `AgentMap.SetFlagMapMarker` 写入游戏旗标。
-7. 优先用 `vnavmesh.Query.Mesh.FlagToPoint` 解析目标三维坐标，失败时使用 Raw 坐标与 `NearestPoint` 回退。
-8. 使用 `vnavmesh.SimpleMove.PathfindAndMoveCloseTo` 导航。
-9. 路径停止但未进入容差范围时自动重试；到达后使用 GeneralAction 23 下坐骑。
+1. `IChatGui.ChatMessage` 接收小队或跨服小队聊天。
+2. 读取 `MapLinkPayload`，并将发送者的 PlayerPayload 与游戏小队 Content ID 对应。
+3. 更新该发送者的目的地条目；自动模式选择最新条目，手动选择状态则保持当前发送者。
+4. 使用游戏旗标与 `vnavmesh.Query.Mesh.FlagToPoint` 解析三维位置。
+5. 可选地比较当前直达路线与已解锁的同地图以太水晶路线。
+6. 自动上坐骑并调用 vnavmesh 导航。途中进入战斗不会停止 vnavmesh。
+7. 监测实际位移和目标距离变化；停滞时先重算路线，再选择以太水晶恢复。
+8. 进入到达范围后停止 vnavmesh，恢复 AE 自动选目标，落地并下坐骑。
+9. 清除相近目的地后停留，等待挖宝、战斗、魔纹或新的聊天坐标。
 
 ## 状态机
 
-`Disabled → Idle → Debouncing → WaitingForPlayer → Mounting → WaitingForVnavmesh → Navigating → Dismounting → Idle`
+`Disabled → Idle → WaitingForPlayer → PlanningRoute/Teleporting → Mounting → WaitingForVnavmesh → Navigating → Landing/Dismounting → Idle`
 
-任一阶段发生不可恢复异常会停止 vnavmesh 并进入 `Error`。收到更新旗标时会停止旧路线，回到 `Debouncing`，因此不会出现多个导航任务并发控制人物。
+`Paused` 可以从运行中的任意导航阶段进入，并保留当前目的地和列表。`Error` 停止移动但保留目的地列表，允许用户手动重新选择。
 
-## 依赖边界
+## 外部插件边界
 
-- Dalamud 原生：聊天事件、地图链接、人物状态、目标清除、旗标设置、坐骑动作、UI、配置。
-- vnavmesh：三维落点解析、路径规划、人物移动和停止。
-- 后续可选：Lifestream（跨地图）、Auto-Target 或战斗插件（战斗阶段）。可选依赖必须通过适配器隔离，核心状态机不得直接依赖其具体 UI 或本地化文本。
+- vnavmesh：路径计算、路线点查询、移动和停止。
+- AE Assist：只在 `Navigating` 状态发送 `/aeTargetSelector off`，其他状态恢复为 `on`。
+- BossMod Reborn：Soumen 开启时发送 `/bmrai on`，关闭或卸载时发送 `/bmrai off`。
+
+外部命令只在状态发生变化时发送，不在每帧重复执行。BossMod Reborn 与 vnavmesh 在途中战斗时均保持运行，这是当前版本按藏宝图实战需求采取的策略，需要重点实测二者的移动控制是否发生冲突。
 
 ## 下一阶段
 
-- G18 藏宝图点位与队员轮次队列。
-- 自动挖掘、宝箱识别和交互。
-- 战斗/索敌适配层，以及基于可配置规则而不是硬编码中文系统文本的事件处理。
-- 传送门与巡梦金库流程。
-- 失败恢复、暂停条件、角色级配置与运行统计。
+- 根据实测数据校准传送惩罚和卡住判定。
+- 增强飞行路线到地面路线的分段落地。
+- 自动挖掘、宝箱识别、开箱和战斗阶段。
+- 传送魔纹检测与后续副本流程。
+- 可选的 DTR/右上角快捷切换入口。

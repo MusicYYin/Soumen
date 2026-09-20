@@ -4,11 +4,14 @@ public enum AutomationState
 {
     Disabled,
     Idle,
-    Debouncing,
+    Paused,
     WaitingForPlayer,
+    PlanningRoute,
+    Teleporting,
     Mounting,
     WaitingForVnavmesh,
     Navigating,
+    Landing,
     Dismounting,
     Error,
 }

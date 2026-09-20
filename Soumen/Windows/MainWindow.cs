@@ -9,9 +9,12 @@ namespace Soumen.Windows;
 
 public sealed class MainWindow : Window
 {
-    private static readonly Vector4 Accent = new(0.24f, 0.62f, 0.96f, 1f);
+    private static readonly Vector4 Accent = new(0.31f, 0.67f, 0.94f, 1f);
+    private static readonly Vector4 AccentSoft = new(0.10f, 0.20f, 0.29f, 0.96f);
+    private static readonly Vector4 Panel = new(0.075f, 0.085f, 0.105f, 0.96f);
     private static readonly Vector4 Success = new(0.34f, 0.84f, 0.56f, 1f);
     private static readonly Vector4 Warning = new(1f, 0.72f, 0.30f, 1f);
+    private static readonly Vector4 Danger = new(0.95f, 0.36f, 0.36f, 1f);
     private static readonly Vector4 Muted = new(0.62f, 0.66f, 0.72f, 1f);
 
     private readonly Configuration configuration;
@@ -25,7 +28,7 @@ public sealed class MainWindow : Window
 
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(600f, 430f),
+            MinimumSize = new Vector2(720f, 500f),
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
         };
     }
@@ -35,52 +38,48 @@ public sealed class MainWindow : Window
         DrawHeader();
         ImGui.Spacing();
 
-        if (ImGui.BeginTabBar("##SoumenTabs"))
+        if (!ImGui.BeginTabBar("##SoumenTabs"))
         {
-            if (ImGui.BeginTabItem("运行"))
-            {
-                DrawOverview();
-                ImGui.EndTabItem();
-            }
-
-            if (ImGui.BeginTabItem("设置"))
-            {
-                DrawSettings();
-                ImGui.EndTabItem();
-            }
-
-            if (ImGui.BeginTabItem("日志"))
-            {
-                DrawLog();
-                ImGui.EndTabItem();
-            }
-
-            if (ImGui.BeginTabItem("关于"))
-            {
-                DrawAbout();
-                ImGui.EndTabItem();
-            }
-
-            ImGui.EndTabBar();
+            return;
         }
+
+        if (ImGui.BeginTabItem("运行"))
+        {
+            DrawOverview();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("设置"))
+        {
+            DrawSettings();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("关于"))
+        {
+            DrawAbout();
+            ImGui.EndTabItem();
+        }
+
+        ImGui.EndTabBar();
     }
 
     private void DrawHeader()
     {
         ImGui.PushStyleColor(ImGuiCol.Text, Accent);
-        ImGui.SetWindowFontScale(1.24f);
+        ImGui.SetWindowFontScale(1.28f);
         ImGui.TextUnformatted("Soumen");
         ImGui.SetWindowFontScale(1f);
         ImGui.PopStyleColor();
 
         ImGui.SameLine();
-        ImGui.TextColored(Muted, "G18 自动跟旗 · Preview");
+        ImGui.TextColored(Muted, "藏宝图自动跟旗 · 0.2 Preview");
 
         var enabled = configuration.Enabled;
-        var label = enabled ? "运行中" : "已关闭";
-        var color = enabled ? Success : Muted;
+        var label = !enabled ? "已关闭" : automation.IsPaused ? "已暂停" : "运行中";
+        var color = !enabled ? Muted : automation.IsPaused ? Warning : Success;
         var available = ImGui.GetContentRegionAvail().X;
-        var width = ImGui.CalcTextSize(label).X + (26f * ImGuiHelpers.GlobalScale);
+        var width = ImGui.CalcTextSize(label).X + (24f * ImGuiHelpers.GlobalScale);
         ImGui.SameLine(Math.Max(ImGui.GetCursorPosX(), ImGui.GetCursorPosX() + available - width));
         ImGui.TextColored(color, "●  " + label);
         ImGui.Separator();
@@ -89,120 +88,225 @@ public sealed class MainWindow : Window
     private void DrawOverview()
     {
         ImGui.Spacing();
-        DrawSectionTitle("自动化");
+        DrawControlBar();
+        ImGui.Spacing();
+        DrawStatusCard();
+        ImGui.Spacing();
+        DrawDestinationList();
+        ImGui.Spacing();
+        DrawDependencies();
+    }
+
+    private void DrawControlBar()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 7f * scale);
 
         var enabled = configuration.Enabled;
-        ImGui.PushStyleColor(ImGuiCol.Button, enabled ? new Vector4(0.35f, 0.16f, 0.18f, 1f) : new Vector4(0.12f, 0.38f, 0.62f, 1f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, enabled ? new Vector4(0.46f, 0.20f, 0.22f, 1f) : new Vector4(0.18f, 0.48f, 0.76f, 1f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonActive, enabled ? new Vector4(0.28f, 0.12f, 0.14f, 1f) : new Vector4(0.10f, 0.31f, 0.52f, 1f));
-        if (ImGui.Button(enabled ? "关闭自动跟旗" : "开启自动跟旗", new Vector2(155f, 36f) * ImGuiHelpers.GlobalScale))
+        ImGui.PushStyleColor(ImGuiCol.Button, enabled ? new Vector4(0.34f, 0.14f, 0.17f, 1f) : new Vector4(0.11f, 0.40f, 0.66f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, enabled ? new Vector4(0.48f, 0.19f, 0.22f, 1f) : new Vector4(0.16f, 0.50f, 0.79f, 1f));
+        if (ImGui.Button(enabled ? "关闭 Soumen" : "开启 Soumen", new Vector2(150f, 38f) * scale))
         {
             automation.SetEnabled(!enabled);
         }
-        ImGui.PopStyleColor(3);
+        ImGui.PopStyleColor(2);
 
         ImGui.SameLine();
-        if (ImGui.Button("紧急停止", new Vector2(110f, 36f) * ImGuiHelpers.GlobalScale))
+        ImGui.BeginDisabled(!enabled);
+        ImGui.PushStyleColor(ImGuiCol.Button, automation.IsPaused ? new Vector4(0.12f, 0.42f, 0.30f, 1f) : new Vector4(0.38f, 0.30f, 0.10f, 1f));
+        if (ImGui.Button(automation.IsPaused ? "继续" : "暂停", new Vector2(104f, 38f) * scale))
+        {
+            automation.SetPaused(!automation.IsPaused);
+        }
+        ImGui.PopStyleColor();
+
+        ImGui.SameLine();
+        if (ImGui.Button("停止导航", new Vector2(112f, 38f) * scale))
         {
             automation.Stop();
         }
+        ImGui.EndDisabled();
 
-        ImGui.Spacing();
-        ImGui.TextColored(GetStateColor(automation.State), $"● {GetStateName(automation.State)}");
-        ImGui.SameLine();
+        ImGui.PopStyleVar();
+    }
+
+    private void DrawStatusCard()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 9f * scale);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, automation.ActiveTarget == null ? Panel : AccentSoft);
+        ImGui.BeginChild("##SoumenStatusCard", new Vector2(0f, 112f * scale), false);
+
+        ImGui.SetCursorPos(new Vector2(16f, 13f) * scale);
+        ImGui.TextColored(GetStateColor(automation.State), $"●  {GetStateName(automation.State)}");
+        ImGui.SetCursorPosX(16f * scale);
         ImGui.TextWrapped(automation.StatusText);
 
-        ImGui.Spacing();
-        DrawSectionTitle("最新坐标");
-        var target = automation.LatestTarget;
-        if (target == null)
+        var target = automation.ActiveTarget;
+        if (target != null)
         {
-            ImGui.TextColored(Muted, "尚未收到队伍坐标链接");
-        }
-        else
-        {
-            ImGui.TextUnformatted($"{target.PlaceName}  X {target.MapX:F1}  Y {target.MapY:F1}");
-            ImGui.TextColored(Muted, $"发送者：{target.Sender}    序号：#{target.Serial}");
+            ImGui.Spacing();
+            ImGui.SetCursorPosX(16f * scale);
+            var mode = automation.IsManualSelection ? "手动选择 · 已锁定" : "最新坐标 · 自动选择";
+            ImGui.TextColored(Muted,
+                $"{mode}    {target.Sender}    {target.PlaceName}  X {target.MapX:F1}  Y {target.MapY:F1}");
         }
 
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
+        ImGui.PopStyleVar();
+    }
+
+    private void DrawDestinationList()
+    {
+        DrawSectionTitle("目的地");
+        var targets = automation.Destinations;
+        if (targets.Count == 0)
+        {
+            ImGui.TextColored(Muted, "等待小队或跨服小队成员发送坐标链接");
+            return;
+        }
+
+        ImGui.TextColored(Muted, "默认前往最新坐标；点击任意一行后，该坐标会自动锁定。到达后不会自动前往其他坐标。");
         ImGui.Spacing();
+
+        var flags = ImGuiTableFlags.RowBg
+            | ImGuiTableFlags.BordersInnerH
+            | ImGuiTableFlags.SizingStretchProp;
+        if (!ImGui.BeginTable("##SoumenDestinations", 6, flags))
+        {
+            return;
+        }
+
+        ImGui.TableSetupColumn("状态", ImGuiTableColumnFlags.WidthFixed, 82f * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("发送者", ImGuiTableColumnFlags.WidthStretch, 1.3f);
+        ImGui.TableSetupColumn("Content ID", ImGuiTableColumnFlags.WidthStretch, 1.1f);
+        ImGui.TableSetupColumn("坐标", ImGuiTableColumnFlags.WidthStretch, 1.5f);
+        ImGui.TableSetupColumn("距离", ImGuiTableColumnFlags.WidthFixed, 74f * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("操作", ImGuiTableColumnFlags.WidthFixed, 120f * ImGuiHelpers.GlobalScale);
+        ImGui.TableHeadersRow();
+
+        foreach (var target in targets)
+        {
+            var active = automation.ActiveTarget?.Serial == target.Serial;
+            ImGui.TableNextRow();
+
+            ImGui.TableNextColumn();
+            ImGui.TextColored(active ? Accent : Muted, active ? "● 当前" : "候选");
+
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(target.Sender);
+
+            ImGui.TableNextColumn();
+            if (target.SenderContentId == 0)
+            {
+                ImGui.TextColored(Muted, "未解析");
+            }
+            else
+            {
+                ImGui.TextUnformatted(target.SenderContentId.ToString());
+            }
+
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted($"{target.PlaceName}  {target.MapX:F1}, {target.MapY:F1}");
+            var nearby = automation.NearbyDestinationCount(target);
+            if (nearby > 1)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(Warning, $"同地点 ×{nearby}");
+            }
+
+            ImGui.TableNextColumn();
+            var distance = automation.DistanceTo(target);
+            ImGui.TextColored(distance == null ? Muted : Vector4.One, distance == null ? "异地图" : $"{distance:F0}y");
+
+            ImGui.TableNextColumn();
+            ImGui.PushID(target.Serial.GetHashCode());
+            ImGui.BeginDisabled(active && automation.IsManualSelection);
+            if (ImGui.Button(active && automation.IsManualSelection ? "已锁定" : "导航至此", new Vector2(-1f, 0f)))
+            {
+                automation.NavigateTo(target.Serial);
+            }
+            ImGui.EndDisabled();
+            ImGui.PopID();
+        }
+
+        ImGui.EndTable();
+    }
+
+    private void DrawDependencies()
+    {
         DrawSectionTitle("依赖状态");
-        DrawDependency("vnavmesh", automation.VnavmeshInstalled, automation.VnavmeshReady);
-        ImGui.TextColored(Muted, "坐标识别与地图旗标由 Soumen 原生完成，无需 ChatCoordinates。");
+        if (ImGui.BeginTable("##SoumenDependencies", 2, ImGuiTableFlags.SizingStretchProp))
+        {
+            DrawDependencyRow("vnavmesh", automation.VnavmeshInstalled,
+                automation.VnavmeshInstalled ? automation.VnavmeshReady ? "已就绪" : "生成网格中" : "未加载");
+            DrawDependencyRow("AE Assist", automation.AeAssistInstalled,
+                automation.AeAssistInstalled ? "已连接" : "未加载（可选）");
+            DrawDependencyRow("BossMod Reborn", automation.BossModRebornInstalled,
+                automation.BossModRebornInstalled ? "AI 已由 Soumen 管理" : "未加载（可选）");
+            ImGui.EndTable();
+        }
 
         ImGui.Spacing();
-        ImGui.TextColored(Warning, "当前版本不会自动挖掘、战斗、开箱、传送或进入传送门。");
+        ImGui.TextColored(Muted, "Soumen 只在实际导航期间关闭 AE 自动选目标；进入战斗不会停止 vnavmesh。抵达后会恢复 AE，并停留等待挖宝或魔纹。");
     }
 
     private void DrawSettings()
     {
         ImGui.Spacing();
-        DrawSectionTitle("响应范围");
-
-        var livingMemoryOnly = configuration.LivingMemoryOnly;
-        if (ImGui.Checkbox("仅处理活着的记忆（Territory 1192）", ref livingMemoryOnly))
-        {
-            configuration.LivingMemoryOnly = livingMemoryOnly;
-            configuration.Save();
-        }
-        ImGui.TextColored(Muted, "关闭后仍只处理与人物当前地图相同的小队坐标。");
-
-        ImGui.Spacing();
         DrawSectionTitle("移动行为");
         DrawCheckbox("自动上坐骑", nameof(configuration.AutoMount), configuration.AutoMount, value => configuration.AutoMount = value);
         DrawCheckbox("优先飞行导航", nameof(configuration.UseFlight), configuration.UseFlight, value => configuration.UseFlight = value);
-        DrawCheckbox("导航期间清除目标", nameof(configuration.ClearTargetWhileNavigating), configuration.ClearTargetWhileNavigating, value => configuration.ClearTargetWhileNavigating = value);
-        DrawCheckbox("到达后自动下坐骑", nameof(configuration.AutoDismount), configuration.AutoDismount, value => configuration.AutoDismount = value);
-        DrawCheckbox("在聊天栏显示运行日志", nameof(configuration.ShowChatLogs), configuration.ShowChatLogs, value => configuration.ShowChatLogs = value);
+        DrawCheckbox("到达后自动落地并下坐骑", nameof(configuration.AutoDismount), configuration.AutoDismount, value => configuration.AutoDismount = value);
 
         ImGui.Spacing();
-        DrawSectionTitle("容错参数");
+        DrawSectionTitle("路线与恢复");
+        DrawCheckbox("启用以太水晶路线比较", nameof(configuration.AutoTeleport), configuration.AutoTeleport, value => configuration.AutoTeleport = value);
+        DrawCheckbox("重新寻路后仍卡住时传送", nameof(configuration.TeleportWhenStuck), configuration.TeleportWhenStuck, value => configuration.TeleportWhenStuck = value);
 
-        var debounce = configuration.DebounceMilliseconds;
-        ImGui.SetNextItemWidth(220f * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderInt("新旗标防抖（毫秒）", ref debounce, 100, 3000))
+        var stuckSeconds = configuration.StuckSeconds;
+        ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
+        if (ImGui.SliderFloat("卡住判定时间（秒）", ref stuckSeconds, 4f, 20f, "%.1f"))
         {
-            configuration.DebounceMilliseconds = debounce;
+            configuration.StuckSeconds = stuckSeconds;
+            configuration.Save();
+        }
+
+        var minimumSaving = configuration.MinimumTeleportSaving;
+        ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
+        if (ImGui.SliderFloat("传送最低路线收益", ref minimumSaving, 0f, 600f, "%.0f y"))
+        {
+            configuration.MinimumTeleportSaving = minimumSaving;
             configuration.Save();
         }
 
         var tolerance = configuration.ArrivalTolerance;
-        ImGui.SetNextItemWidth(220f * ImGuiHelpers.GlobalScale);
+        ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
         if (ImGui.SliderFloat("到达判定（世界距离）", ref tolerance, 3f, 30f, "%.1f"))
         {
             configuration.ArrivalTolerance = tolerance;
             configuration.Save();
         }
-    }
 
-    private void DrawLog()
-    {
         ImGui.Spacing();
-        DrawSectionTitle("最近事件");
-        if (automation.RecentEvents.Count == 0)
-        {
-            ImGui.TextColored(Muted, "暂无事件");
-            return;
-        }
-
-        ImGui.BeginChild("##SoumenLog", Vector2.Zero, true);
-        foreach (var line in automation.RecentEvents)
-        {
-            ImGui.TextWrapped(line);
-        }
-        ImGui.EndChild();
+        DrawSectionTitle("外部插件");
+        DrawCheckbox("管理 AE Assist 自动选目标", nameof(configuration.EnableAeAssistIntegration), configuration.EnableAeAssistIntegration,
+            value => configuration.EnableAeAssistIntegration = value);
+        DrawCheckbox("运行期间启用 BossMod Reborn AI", nameof(configuration.EnableBossModRebornIntegration), configuration.EnableBossModRebornIntegration,
+            value => configuration.EnableBossModRebornIntegration = value);
     }
 
     private static void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.1");
-        ImGui.TextWrapped("面向 FF14 藏宝图队伍流程的独立 Dalamud 插件。第一阶段专注于稳定、可观察、可随时停止的自动跟旗导航。");
+        DrawSectionTitle("Soumen 0.2");
+        ImGui.TextWrapped("面向 FF14 藏宝图队伍流程的独立 Dalamud 插件。本版本支持多发送者目的地选择、全地图坐标、暂停恢复、路线停滞恢复以及 AE Assist / BossMod Reborn 协调。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
-        ImGui.TextColored(Muted, "命令：/soumen · /soumen on · /soumen off · /soumen stop");
+        ImGui.TextColored(Muted, "命令：/soumen · on · off · pause · resume · stop");
         ImGui.Spacing();
-        ImGui.TextWrapped("Dalamud 和第三方插件不属于 Square Enix 官方功能。自动化可能违反游戏服务条款，请自行判断并承担风险。");
+        ImGui.TextWrapped("当前仍不会自动挖掘、开箱或进入传送魔纹。Dalamud 和第三方插件不属于 Square Enix 官方功能，自动化可能违反游戏服务条款，请自行判断并承担风险。");
     }
 
     private static void DrawSectionTitle(string title)
@@ -213,13 +317,13 @@ public sealed class MainWindow : Window
         ImGui.Separator();
     }
 
-    private static void DrawDependency(string name, bool installed, bool ready)
+    private static void DrawDependencyRow(string name, bool installed, string status)
     {
-        var color = !installed ? new Vector4(0.92f, 0.38f, 0.38f, 1f) : ready ? Success : Warning;
-        var status = !installed ? "未加载" : ready ? "已就绪" : "准备中";
+        ImGui.TableNextRow();
+        ImGui.TableNextColumn();
         ImGui.TextUnformatted(name);
-        ImGui.SameLine(170f * ImGuiHelpers.GlobalScale);
-        ImGui.TextColored(color, "● " + status);
+        ImGui.TableNextColumn();
+        ImGui.TextColored(installed ? Success : Muted, $"● {status}");
     }
 
     private void DrawCheckbox(string label, string id, bool current, Action<bool> update)
@@ -237,8 +341,9 @@ public sealed class MainWindow : Window
         {
             AutomationState.Idle => Success,
             AutomationState.Disabled => Muted,
-            AutomationState.Error => new Vector4(0.95f, 0.36f, 0.36f, 1f),
-            AutomationState.Debouncing or AutomationState.WaitingForPlayer or AutomationState.WaitingForVnavmesh => Warning,
+            AutomationState.Paused => Warning,
+            AutomationState.Error => Danger,
+            AutomationState.WaitingForPlayer or AutomationState.WaitingForVnavmesh or AutomationState.PlanningRoute => Warning,
             _ => Accent,
         };
 
@@ -247,11 +352,14 @@ public sealed class MainWindow : Window
         {
             AutomationState.Disabled => "已关闭",
             AutomationState.Idle => "待命",
-            AutomationState.Debouncing => "接收坐标",
-            AutomationState.WaitingForPlayer => "等待人物",
+            AutomationState.Paused => "已暂停",
+            AutomationState.WaitingForPlayer => "准备中",
+            AutomationState.PlanningRoute => "路线计算",
+            AutomationState.Teleporting => "传送中",
             AutomationState.Mounting => "上坐骑",
             AutomationState.WaitingForVnavmesh => "等待导航",
             AutomationState.Navigating => "导航中",
+            AutomationState.Landing => "落地中",
             AutomationState.Dismounting => "下坐骑",
             AutomationState.Error => "异常",
             _ => state.ToString(),
