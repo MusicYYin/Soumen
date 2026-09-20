@@ -185,7 +185,7 @@ public sealed class MainWindow : Window
             return;
         }
 
-        ImGui.BeginChild("##SoumenLog", Vector2.Zero, ImGuiChildFlags.Border);
+        ImGui.BeginChild("##SoumenLog", Vector2.Zero, true);
         foreach (var line in automation.RecentEvents)
         {
             ImGui.TextWrapped(line);
