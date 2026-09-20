@@ -1,0 +1,31 @@
+[
+  {
+    "Author": "MusicYYin",
+    "Name": "Soumen",
+    "Punchline": "自动跟随藏宝图队伍旗标。",
+    "Description": "监听队伍或跨服队伍中的坐标链接，在同地图自动上坐骑并通过 vnavmesh 飞往旗标，到达后自动下坐骑。当前版本聚焦 G18 的活着的记忆场景。",
+    "InternalName": "Soumen",
+    "AssemblyVersion": "0.1.0.0",
+    "RepoUrl": "https://github.com/MusicYYin/Soumen",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 15,
+    "Tags": [
+      "treasure",
+      "map",
+      "navigation",
+      "automation",
+      "Chinese"
+    ],
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://github.com/MusicYYin/Soumen/releases/download/0.1.0.0/Soumen.zip",
+    "DownloadLinkTesting": "https://github.com/MusicYYin/Soumen/releases/download/0.1.0.0/Soumen.zip",
+    "DownloadLinkUpdate": "https://github.com/MusicYYin/Soumen/releases/download/0.1.0.0/Soumen.zip",
+    "LoadRequiredState": 0,
+    "LoadSync": false,
+    "LoadPriority": 0,
+    "CanUnloadAsync": false,
+    "AcceptsFeedback": true,
+    "LastUpdated": "2026-09-20T00:00:00Z"
+  }
+]
