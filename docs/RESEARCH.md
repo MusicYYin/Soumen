@@ -17,4 +17,4 @@
 - 不再通过聊天文本中的地图中文名和坐标正则表达式判断旗标。
 - 不再依赖 ChatCoordinates 把坐标写回游戏旗标。
 - 首版只保留 vnavmesh 为强依赖，其他自动化能力逐步以可选适配器加入。
-- 第三方仓库采用仓库根目录 `repo.json` + GitHub Release 中 `Soumen.zip` 的模式。
+- 第三方仓库使用 `MusicYYin/DalamudPlugins` 中的 `pluginmaster.json`，安装包由 GitHub Release 提供。

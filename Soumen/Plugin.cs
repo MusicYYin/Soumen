@@ -30,7 +30,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public Plugin()
     {
-        configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        configuration = Configuration.Load(PluginInterface);
         automation = new MapFlagAutomation(configuration);
         mainWindow = new MainWindow(configuration, automation);
         windowSystem.AddWindow(mainWindow);

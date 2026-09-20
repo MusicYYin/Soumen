@@ -73,7 +73,7 @@ public sealed class MainWindow : Window
         ImGui.PopStyleColor();
 
         ImGui.SameLine();
-        ImGui.TextColored(Muted, "藏宝图自动跟旗 · 0.2 Preview");
+        ImGui.TextColored(Muted, "藏宝图坐标导航 · 0.2.1");
 
         var enabled = configuration.Enabled;
         var label = !enabled ? "已关闭" : automation.IsPaused ? "已暂停" : "运行中";
@@ -167,7 +167,7 @@ public sealed class MainWindow : Window
             return;
         }
 
-        ImGui.TextColored(Muted, "默认前往最新坐标；点击任意一行后，该坐标会自动锁定。到达后不会自动前往其他坐标。");
+        ImGui.TextColored(Muted, "默认使用最新坐标；手动选择后锁定该目标。");
         ImGui.Spacing();
 
         var flags = ImGuiTableFlags.RowBg
@@ -247,9 +247,6 @@ public sealed class MainWindow : Window
                 automation.BossModRebornInstalled ? "AI 已由 Soumen 管理" : "未加载（可选）");
             ImGui.EndTable();
         }
-
-        ImGui.Spacing();
-        ImGui.TextColored(Muted, "Soumen 只在实际导航期间关闭 AE 自动选目标；进入战斗不会停止 vnavmesh。抵达后会恢复 AE，并停留等待挖宝或魔纹。");
     }
 
     private void DrawSettings()
@@ -300,13 +297,11 @@ public sealed class MainWindow : Window
     private static void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.2");
-        ImGui.TextWrapped("面向 FF14 藏宝图队伍流程的独立 Dalamud 插件。本版本支持多发送者目的地选择、全地图坐标、暂停恢复、路线停滞恢复以及 AE Assist / BossMod Reborn 协调。");
+        DrawSectionTitle("Soumen 0.2.1");
+        ImGui.TextWrapped("小队藏宝图坐标导航插件。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
         ImGui.TextColored(Muted, "命令：/soumen · on · off · pause · resume · stop");
-        ImGui.Spacing();
-        ImGui.TextWrapped("当前仍不会自动挖掘、开箱或进入传送魔纹。Dalamud 和第三方插件不属于 Square Enix 官方功能，自动化可能违反游戏服务条款，请自行判断并承担风险。");
     }
 
     private static void DrawSectionTitle(string title)

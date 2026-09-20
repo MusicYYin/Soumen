@@ -1,11 +1,24 @@
 using Dalamud.Configuration;
+using Dalamud.Plugin;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Soumen;
 
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 2;
+    private const string FileName = "config.json";
+
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        WriteIndented = true,
+    };
+
+    [JsonIgnore]
+    private IDalamudPluginInterface? pluginInterface;
+
+    public int Version { get; set; } = 3;
 
     public bool Enabled { get; set; } = false;
 
@@ -31,5 +44,64 @@ public sealed class Configuration : IPluginConfiguration
 
     public float ArrivalTolerance { get; set; } = 8f;
 
-    public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
+    public static Configuration Load(IDalamudPluginInterface pluginInterface)
+    {
+        var directory = pluginInterface.GetPluginConfigDirectory();
+        var path = Path.Combine(directory, FileName);
+        Directory.CreateDirectory(directory);
+
+        Configuration configuration;
+        if (File.Exists(path))
+        {
+            try
+            {
+                configuration = JsonSerializer.Deserialize<Configuration>(File.ReadAllText(path), SerializerOptions)
+                    ?? new Configuration();
+            }
+            catch (Exception exception)
+            {
+                Plugin.Log.Error(exception, "Failed to load Soumen config; using defaults.");
+                configuration = new Configuration();
+            }
+        }
+        else
+        {
+            try
+            {
+                configuration = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+            }
+            catch (Exception exception)
+            {
+                Plugin.Log.Error(exception, "Failed to migrate the old Soumen config; using defaults.");
+                configuration = new Configuration();
+            }
+        }
+
+        configuration.pluginInterface = pluginInterface;
+        configuration.Version = 3;
+        configuration.Save();
+        return configuration;
+    }
+
+    public void Save()
+    {
+        if (pluginInterface == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var directory = pluginInterface.GetPluginConfigDirectory();
+            var path = Path.Combine(directory, FileName);
+            var temporaryPath = path + ".tmp";
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(this, SerializerOptions));
+            File.Move(temporaryPath, path, true);
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Error(exception, "Failed to save Soumen config.");
+        }
+    }
 }
