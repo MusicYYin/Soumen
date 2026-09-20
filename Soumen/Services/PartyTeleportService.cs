@@ -34,7 +34,7 @@ public sealed unsafe class PartyTeleportService : IDisposable
             return;
         }
 
-        var addon = args.GetAddon<AddonSelectYesno>();
+        var addon = (AddonSelectYesno*)args.Addon.Address;
         var prompt = addon == null || addon->PromptText == null
             ? string.Empty
             : addon->PromptText->NodeText.ToString();
@@ -45,7 +45,7 @@ public sealed unsafe class PartyTeleportService : IDisposable
         }
 
         Plugin.Log.Information("Accepting party teleport request: {Prompt}", prompt);
-        AddonSelectYesno.Yes();
+        addon->AtkUnitBase.FireCallbackInt(0);
     }
 
     private static string[] LoadPromptFragments()
