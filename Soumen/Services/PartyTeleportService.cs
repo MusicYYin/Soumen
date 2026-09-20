@@ -12,11 +12,13 @@ public sealed unsafe class PartyTeleportService : IDisposable
     private const uint TeleportOfferAddonRow = 1800;
 
     private readonly Configuration configuration;
+    private readonly Action onTeleportAccepted;
     private readonly string[] promptFragments;
 
-    public PartyTeleportService(Configuration configuration)
+    public PartyTeleportService(Configuration configuration, Action onTeleportAccepted)
     {
         this.configuration = configuration;
+        this.onTeleportAccepted = onTeleportAccepted;
         promptFragments = LoadPromptFragments();
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnSelectYesnoPostSetup);
     }
@@ -45,6 +47,7 @@ public sealed unsafe class PartyTeleportService : IDisposable
         }
 
         Plugin.Log.Information("Accepting party teleport request: {Prompt}", prompt);
+        onTeleportAccepted();
         addon->AtkUnitBase.FireCallbackInt(0);
     }
 
