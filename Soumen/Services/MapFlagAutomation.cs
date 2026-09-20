@@ -823,7 +823,7 @@ public sealed class MapFlagAutomation : IDisposable
             && !teleportSawCasting
             && !teleportSawLoading
             && !arrivedNearCrystal
-            && teleportAetheryteId is { } aetheryteId
+            && teleportAetheryteId is { } aetheryteId)
         {
             if (!teleporter.Teleport(aetheryteId))
             {
