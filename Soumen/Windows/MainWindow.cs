@@ -255,8 +255,23 @@ public sealed class MainWindow : Window
         DrawCheckbox("到达后自动落地并下坐骑", nameof(configuration.AutoDismount), configuration.AutoDismount, value => configuration.AutoDismount = value);
 
         ImGui.Spacing();
+        DrawSectionTitle("传送方式（二选一）");
+        if (ImGui.RadioButton("自行传送至更近的以太水晶", configuration.AutoTeleport))
+        {
+            configuration.AutoTeleport = true;
+            configuration.AcceptPartyTeleportRequests = false;
+            configuration.Save();
+        }
+
+        if (ImGui.RadioButton("接受队友传送邀请", configuration.AcceptPartyTeleportRequests))
+        {
+            configuration.AutoTeleport = false;
+            configuration.AcceptPartyTeleportRequests = true;
+            configuration.Save();
+        }
+
+        ImGui.Spacing();
         DrawSectionTitle("路线与恢复");
-        DrawCheckbox("自动传送至更近的以太水晶", nameof(configuration.AutoTeleport), configuration.AutoTeleport, value => configuration.AutoTeleport = value);
         DrawCheckbox("重新寻路后仍卡住时传送", nameof(configuration.TeleportWhenStuck), configuration.TeleportWhenStuck, value => configuration.TeleportWhenStuck = value);
 
         var stuckSeconds = configuration.StuckSeconds;
@@ -283,9 +298,7 @@ public sealed class MainWindow : Window
             value => configuration.EnableBossModRebornIntegration = value);
 
         ImGui.Spacing();
-        DrawSectionTitle("队伍与宝物库");
-        DrawCheckbox("自动接受队友传送邀请", nameof(configuration.AcceptPartyTeleportRequests), configuration.AcceptPartyTeleportRequests,
-            value => configuration.AcceptPartyTeleportRequests = value);
+        DrawSectionTitle("宝物库");
         DrawCheckbox("宝物库结束且无待掷点物品时自动离开", nameof(configuration.AutoLeaveTreasureDungeon), configuration.AutoLeaveTreasureDungeon,
             value => configuration.AutoLeaveTreasureDungeon = value);
     }
@@ -293,7 +306,7 @@ public sealed class MainWindow : Window
     private static void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.3.0");
+        DrawSectionTitle("Soumen 0.3.2");
         ImGui.TextWrapped("小队藏宝图坐标导航插件。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");

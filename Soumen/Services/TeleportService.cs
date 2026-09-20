@@ -42,8 +42,7 @@ public sealed class TeleportService
             return false;
         }
 
-        telepo->Teleport(aetheryteId, 0);
-        return true;
+        return telepo->Teleport(aetheryteId, 0);
     }
 
     private static unsafe bool IsAttuned(uint aetheryteId)
