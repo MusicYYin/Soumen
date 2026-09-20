@@ -18,7 +18,7 @@ public sealed class Configuration : IPluginConfiguration
     [JsonIgnore]
     private IDalamudPluginInterface? pluginInterface;
 
-    public int Version { get; set; } = 4;
+    public int Version { get; set; } = 5;
 
     public bool Enabled { get; set; } = false;
 
@@ -78,7 +78,16 @@ public sealed class Configuration : IPluginConfiguration
         }
 
         configuration.pluginInterface = pluginInterface;
-        configuration.Version = 4;
+        if (configuration.AcceptPartyTeleportRequests)
+        {
+            configuration.AutoTeleport = false;
+        }
+        else
+        {
+            configuration.AutoTeleport = true;
+        }
+
+        configuration.Version = 5;
         configuration.Save();
         return configuration;
     }

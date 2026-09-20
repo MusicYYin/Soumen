@@ -392,6 +392,29 @@ public sealed class MapFlagAutomation : IDisposable
 
         if (Plugin.ClientState.TerritoryType != activeTarget.TerritoryId)
         {
+            if (ShouldCompareTeleportRoute())
+            {
+                var targetPosition = activeTarget.ToWorld(0f);
+                var nearest = teleporter.GetCandidates(activeTarget.TerritoryId)
+                    .MinBy(candidate => HorizontalDistance(candidate.Position, targetPosition));
+                if (nearest == null)
+                {
+                    routeComparedTargetSerial = activeTarget.Serial;
+                    StatusText = "目标位于其他地图，未找到已解锁的目标地图以太水晶";
+                    return;
+                }
+
+                if (BeginTeleport(nearest))
+                {
+                    routeComparedTargetSerial = activeTarget.Serial;
+                    StatusText = $"正在传送至目标地图最近的以太水晶 #{nearest.Id}";
+                    return;
+                }
+
+                StatusText = "暂时无法发起传送，正在等待重试";
+                return;
+            }
+
             StatusText = $"目标位于其他地图（Territory {activeTarget.TerritoryId}），等待进入该地图";
             return;
         }
@@ -418,7 +441,6 @@ public sealed class MapFlagAutomation : IDisposable
                 return;
             }
 
-            routeComparedTargetSerial = activeTarget.Serial;
             if (BeginRoutePlanning(recovery: false))
             {
                 return;
@@ -503,7 +525,6 @@ public sealed class MapFlagAutomation : IDisposable
 
         if (ShouldCompareTeleportRoute())
         {
-            routeComparedTargetSerial = activeTarget.Serial;
             if (BeginRoutePlanning(recovery: false))
             {
                 return;
@@ -745,13 +766,7 @@ public sealed class MapFlagAutomation : IDisposable
                 var origin = vnavmesh.NearestPoint(candidate.Position) ?? candidate.Position;
                 return new CandidatePath(candidate, origin, vnavmesh.Pathfind(origin, destination.Value, fly));
             })
-            .Where(path => path.Task != null)
             .ToList();
-
-        if (candidatePaths.Count == 0)
-        {
-            return false;
-        }
 
         vnavmesh.Stop();
         externalPlugins.SetNavigating(false);
@@ -762,6 +777,7 @@ public sealed class MapFlagAutomation : IDisposable
             DateTime.UtcNow,
             directTask,
             candidatePaths);
+        routeComparedTargetSerial = activeTarget.Serial;
         SetState(AutomationState.PlanningRoute,
             recovery ? "重新寻路仍停滞，正在计算以太水晶方案" : "正在比较直达与传送路线");
         return true;
@@ -799,6 +815,11 @@ public sealed class MapFlagAutomation : IDisposable
         foreach (var candidate in routePlan.CandidatePaths)
         {
             var length = GetPathLength(candidate.Task, candidate.Origin);
+            if (!float.IsFinite(length))
+            {
+                length = HorizontalDistance(candidate.Origin, routePlan.Destination);
+            }
+
             if (length < bestLength)
             {
                 best = candidate;
@@ -808,7 +829,7 @@ public sealed class MapFlagAutomation : IDisposable
 
         var shouldTeleport = best != null
             && float.IsFinite(bestLength)
-            && (routePlan.Recovery || bestLength + 1f < directLength);
+            && (routePlan.Recovery || bestLength < directLength);
 
         routePlan = null;
         if (shouldTeleport && best != null && BeginTeleport(best.Candidate))
@@ -867,7 +888,7 @@ public sealed class MapFlagAutomation : IDisposable
             {
                 Plugin.Log.Warning("Teleport retry could not be issued; continuing without teleport.");
                 ResetTeleportState();
-                ContinueToMountOrNavigate();
+                ContinueAfterTeleportFailure();
                 return;
             }
 
@@ -885,8 +906,20 @@ public sealed class MapFlagAutomation : IDisposable
                 "Teleport was not confirmed after {AttemptCount} attempt(s); continuing without teleport.",
                 teleportAttemptCount);
             ResetTeleportState();
-            ContinueToMountOrNavigate();
+            ContinueAfterTeleportFailure();
         }
+    }
+
+    private void ContinueAfterTeleportFailure()
+    {
+        if (activeTarget != null && Plugin.ClientState.TerritoryType != activeTarget.TerritoryId)
+        {
+            routeComparedTargetSerial = activeTarget.Serial;
+            SetState(AutomationState.WaitingForPlayer, "自动传送未完成，等待进入目标地图");
+            return;
+        }
+
+        ContinueToMountOrNavigate();
     }
 
     private void ProcessPartyTeleport(DateTime now)
