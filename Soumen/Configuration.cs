@@ -18,7 +18,7 @@ public sealed class Configuration : IPluginConfiguration
     [JsonIgnore]
     private IDalamudPluginInterface? pluginInterface;
 
-    public int Version { get; set; } = 3;
+    public int Version { get; set; } = 4;
 
     public bool Enabled { get; set; } = false;
 
@@ -34,11 +34,11 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool AutoTeleport { get; set; } = true;
 
+    public bool AcceptPartyTeleportRequests { get; set; } = false;
+
+    public bool AutoLeaveTreasureDungeon { get; set; } = false;
+
     public bool TeleportWhenStuck { get; set; } = true;
-
-    public float TeleportPenaltyDistance { get; set; } = 260f;
-
-    public float MinimumTeleportSaving { get; set; } = 140f;
 
     public float StuckSeconds { get; set; } = 8f;
 
@@ -78,7 +78,7 @@ public sealed class Configuration : IPluginConfiguration
         }
 
         configuration.pluginInterface = pluginInterface;
-        configuration.Version = 3;
+        configuration.Version = 4;
         configuration.Save();
         return configuration;
     }

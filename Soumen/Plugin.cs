@@ -21,17 +21,23 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static ITargetManager TargetManager { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
+    [PluginService] internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
+    [PluginService] internal static IDutyState DutyState { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     private readonly WindowSystem windowSystem = new("Soumen");
     private readonly Configuration configuration;
     private readonly MapFlagAutomation automation;
+    private readonly PartyTeleportService partyTeleportService;
+    private readonly TreasureDungeonAutomation treasureDungeonAutomation;
     private readonly MainWindow mainWindow;
 
     public Plugin()
     {
         configuration = Configuration.Load(PluginInterface);
         automation = new MapFlagAutomation(configuration);
+        partyTeleportService = new PartyTeleportService(configuration);
+        treasureDungeonAutomation = new TreasureDungeonAutomation(configuration);
         mainWindow = new MainWindow(configuration, automation);
         windowSystem.AddWindow(mainWindow);
 
@@ -52,6 +58,8 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi -= OpenMainUi;
         CommandManager.RemoveHandler(CommandName);
         windowSystem.RemoveAllWindows();
+        treasureDungeonAutomation.Dispose();
+        partyTeleportService.Dispose();
         automation.Dispose();
     }
 
