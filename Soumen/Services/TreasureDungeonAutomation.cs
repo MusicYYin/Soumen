@@ -108,7 +108,7 @@ public sealed class TreasureDungeonAutomation : IDisposable
             return false;
         }
 
-        var condition = Plugin.DataManager.GetExcelSheet<ContentFinderCondition>().GetRow(conditionId);
+        var condition = Plugin.DataManager.GetExcelSheet<ContentFinderCondition>().GetRow((uint)conditionId);
         return condition.ContentType.RowId == 9;
     }
 
