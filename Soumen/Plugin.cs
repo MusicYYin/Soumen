@@ -27,6 +27,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private readonly WindowSystem windowSystem = new("Soumen");
     private readonly Configuration configuration;
+    private readonly DiagnosticLogger diagnostics;
     private readonly MapFlagAutomation automation;
     private readonly PartyTeleportService partyTeleportService;
     private readonly TreasureDungeonAutomation treasureDungeonAutomation;
@@ -35,10 +36,12 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin()
     {
         configuration = Configuration.Load(PluginInterface);
-        automation = new MapFlagAutomation(configuration);
+        diagnostics = new DiagnosticLogger(configuration);
+        diagnostics.Write("运行", "Soumen 已加载。");
+        automation = new MapFlagAutomation(configuration, diagnostics);
         partyTeleportService = new PartyTeleportService(configuration, automation.PrepareForPartyTeleport);
         treasureDungeonAutomation = new TreasureDungeonAutomation(configuration);
-        mainWindow = new MainWindow(configuration, automation);
+        mainWindow = new MainWindow(configuration, automation, diagnostics);
         windowSystem.AddWindow(mainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -53,6 +56,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        diagnostics.Write("运行", "Soumen 正在卸载。");
         PluginInterface.UiBuilder.Draw -= windowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi -= OpenMainUi;
