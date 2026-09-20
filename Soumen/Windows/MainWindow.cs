@@ -19,12 +19,14 @@ public sealed class MainWindow : Window
 
     private readonly Configuration configuration;
     private readonly MapFlagAutomation automation;
+    private readonly DiagnosticLogger diagnostics;
 
-    public MainWindow(Configuration configuration, MapFlagAutomation automation)
+    public MainWindow(Configuration configuration, MapFlagAutomation automation, DiagnosticLogger diagnostics)
         : base("Soumen##SoumenMain")
     {
         this.configuration = configuration;
         this.automation = automation;
+        this.diagnostics = diagnostics;
 
         SizeConstraints = new WindowSizeConstraints
         {
@@ -301,12 +303,28 @@ public sealed class MainWindow : Window
         DrawSectionTitle("宝物库");
         DrawCheckbox("宝物库结束且无待掷点物品时自动离开", nameof(configuration.AutoLeaveTreasureDungeon), configuration.AutoLeaveTreasureDungeon,
             value => configuration.AutoLeaveTreasureDungeon = value);
+
+        ImGui.Spacing();
+        DrawSectionTitle("开发者模式");
+        DrawCheckbox("识别所有聊天坐标", nameof(configuration.RecognizeAllChatCoordinates), configuration.RecognizeAllChatCoordinates,
+            value => configuration.RecognizeAllChatCoordinates = value);
+        DrawCheckbox("诊断模式", nameof(configuration.DiagnosticMode), configuration.DiagnosticMode,
+            value =>
+            {
+                configuration.DiagnosticMode = value;
+                if (value)
+                {
+                    diagnostics.Write("诊断", "诊断模式已开启，后续内容将追加写入此文件。");
+                }
+            });
+        ImGui.TextColored(Muted, $"日志目录：{diagnostics.DirectoryPath}");
+        ImGui.TextColored(Muted, "文件名：diagnostic.log（关闭诊断模式时不会写入）");
     }
 
     private static void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.3.3");
+        DrawSectionTitle("Soumen 0.3.4");
         ImGui.TextWrapped("小队藏宝图坐标导航插件。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");

@@ -29,9 +29,10 @@ public sealed class MapFlagAutomation : IDisposable
     private const int MaxTeleportAttempts = 2;
 
     private readonly Configuration configuration;
+    private readonly DiagnosticLogger diagnostics;
     private readonly VNavmeshIpc vnavmesh;
     private readonly ExternalPluginCoordinator externalPlugins;
-    private readonly TeleportService teleporter = new();
+    private readonly TeleportService teleporter;
     private readonly Dictionary<string, MapFlagTarget> destinations = [];
 
     private MapFlagTarget? activeTarget;
@@ -46,6 +47,7 @@ public sealed class MapFlagAutomation : IDisposable
     private DateTime lastNavigationAttemptUtc = DateTime.MinValue;
     private DateTime lastProgressUtc = DateTime.UtcNow;
     private DateTime teleportPreparedUtc = DateTime.MinValue;
+    private DateTime teleportStationarySinceUtc = DateTime.MinValue;
     private DateTime teleportIssuedUtc = DateTime.MinValue;
     private DateTime? partyTeleportAcceptedUtc;
     private uint? teleportAetheryteId;
@@ -64,10 +66,12 @@ public sealed class MapFlagAutomation : IDisposable
     private bool partyTeleportSawLoading;
     private bool disposed;
 
-    public MapFlagAutomation(Configuration configuration)
+    public MapFlagAutomation(Configuration configuration, DiagnosticLogger diagnostics)
     {
         this.configuration = configuration;
-        vnavmesh = new VNavmeshIpc(Plugin.PluginInterface);
+        this.diagnostics = diagnostics;
+        vnavmesh = new VNavmeshIpc(Plugin.PluginInterface, diagnostics);
+        teleporter = new TeleportService(diagnostics);
         externalPlugins = new ExternalPluginCoordinator(configuration);
 
         Plugin.ChatGui.ChatMessage += OnChatMessage;
@@ -218,7 +222,8 @@ public sealed class MapFlagAutomation : IDisposable
     private void OnChatMessage(IHandleableChatMessage message)
     {
         if (!configuration.Enabled
-            || message.LogKind is not (XivChatType.Party or XivChatType.CrossParty))
+            || (!configuration.RecognizeAllChatCoordinates
+                && message.LogKind is not (XivChatType.Party or XivChatType.CrossParty)))
         {
             return;
         }
@@ -230,9 +235,12 @@ public sealed class MapFlagAutomation : IDisposable
         }
 
         var sender = ResolveSender(message.Sender);
+        var senderText = string.IsNullOrWhiteSpace(message.Sender.TextValue)
+            ? sender.Name
+            : message.Sender.TextValue;
         var target = new MapFlagTarget(
             ++serial,
-            message.Sender.TextValue,
+            senderText,
             sender.Name,
             sender.WorldId,
             sender.ContentId,
@@ -271,6 +279,9 @@ public sealed class MapFlagAutomation : IDisposable
             target.PlaceName,
             target.MapX,
             target.MapY);
+        diagnostics.Write(
+            "坐标",
+            $"收到 {message.LogKind} 坐标：sender={target.Sender}，territory={target.TerritoryId}，map={target.MapId}，raw=({target.RawX},{target.RawY})，map=({target.MapX:F1},{target.MapY:F1})，serial={target.Serial}。");
     }
 
     private void OnFrameworkUpdate(Dalamud.Plugin.Services.IFramework framework)
@@ -409,6 +420,7 @@ public sealed class MapFlagAutomation : IDisposable
                 {
                     routeComparedTargetSerial = activeTarget.Serial;
                     StatusText = "目标位于其他地图，未找到已解锁的目标地图以太水晶";
+                    diagnostics.Write("传送判断", $"目标位于 territory={activeTarget.TerritoryId}，但没有找到已解锁水晶，无法自动跨地图传送。");
                     return;
                 }
 
@@ -742,12 +754,18 @@ public sealed class MapFlagAutomation : IDisposable
         lastNavigationAttemptUtc = DateTime.UtcNow;
         if (!started)
         {
+            diagnostics.Write(
+                "导航",
+                $"vnavmesh 拒绝开始导航：destination=({destination.Value.X:F1},{destination.Value.Y:F1},{destination.Value.Z:F1})，fly={fly}，range={Math.Clamp(configuration.ArrivalTolerance / 2f, 2f, 8f):F1}；{BuildDiagnosticContext()}");
             return false;
         }
 
         externalPlugins.SetNavigating(true);
         var player = Plugin.ObjectTable.LocalPlayer.Position;
         ResetProgress(player, HorizontalDistance(player, destination.Value), DateTime.UtcNow);
+        diagnostics.Write(
+            "导航",
+            $"已开始{(fly ? "飞行" : "步行")}导航：destination=({destination.Value.X:F1},{destination.Value.Y:F1},{destination.Value.Z:F1})；{BuildDiagnosticContext()}");
         SetState(AutomationState.Navigating,
             $"开始{(fly ? "飞行" : "步行")}导航：{activeTarget.MapX:F1}, {activeTarget.MapY:F1}");
         return true;
@@ -763,6 +781,7 @@ public sealed class MapFlagAutomation : IDisposable
         var candidates = teleporter.GetCandidates(activeTarget.TerritoryId);
         if (candidates.Count == 0)
         {
+            diagnostics.Write("路线判断", $"目标 serial={activeTarget.Serial} 没有可比较的以太水晶，继续直接导航。");
             return false;
         }
 
@@ -846,6 +865,9 @@ public sealed class MapFlagAutomation : IDisposable
             best?.Candidate.Name ?? "none",
             bestLength,
             shouldTeleport);
+        diagnostics.Write(
+            "路线判断",
+            $"serial={activeTarget.Serial}，direct={directLength:F1}，best={best?.Candidate.Name ?? "无"}#{best?.Candidate.Id ?? 0}，aetheryteRoute={bestLength:F1}，recovery={routePlan.Recovery}，teleport={shouldTeleport}。");
 
         routePlan = null;
         if (shouldTeleport && best != null && BeginTeleport(best.Candidate))
@@ -868,6 +890,7 @@ public sealed class MapFlagAutomation : IDisposable
             && now - teleportPreparedUtc >= TeleportPrepareTimeout)
         {
             Plugin.Log.Warning("Teleport preparation timed out; continuing by navigation.");
+            diagnostics.Write("传送", $"准备传送超时：{BuildDiagnosticContext()}；恢复普通导航。");
             ResetTeleportState();
             ContinueAfterTeleportFailure();
             return;
@@ -922,43 +945,9 @@ public sealed class MapFlagAutomation : IDisposable
             if (Plugin.Condition[ConditionFlag.InCombat])
             {
                 Plugin.Log.Information("Teleport preparation was interrupted by combat; continuing by navigation.");
+                diagnostics.Write("传送", "准备阶段进入战斗，取消本次传送并恢复普通导航。");
                 ResetTeleportState();
                 ContinueAfterTeleportFailure();
-                return;
-            }
-
-            if (IsMounted())
-            {
-                StatusText = Plugin.Condition[ConditionFlag.InFlight]
-                    ? "正在落地，准备传送"
-                    : "正在下坐骑，准备传送";
-                if (!Plugin.Condition.Any(
-                        ConditionFlag.Jumping,
-                        ConditionFlag.Jumping61,
-                        ConditionFlag.MountOrOrnamentTransition)
-                    && now - lastDismountAttemptUtc >= ActionRetryInterval)
-                {
-                    lastDismountAttemptUtc = now;
-                    var actionManager = ActionManager.Instance();
-                    if (actionManager == null)
-                    {
-                        return;
-                    }
-
-                    if (Plugin.Condition[ConditionFlag.InFlight])
-                    {
-                        actionManager->UseAction(ActionType.GeneralAction, 23);
-                    }
-                    else if (actionManager->GetActionStatus(ActionType.Mount, 0) == 0)
-                    {
-                        actionManager->UseAction(ActionType.Mount, 0);
-                    }
-                    else
-                    {
-                        actionManager->UseAction(ActionType.GeneralAction, 23);
-                    }
-                }
-
                 return;
             }
 
@@ -969,25 +958,44 @@ public sealed class MapFlagAutomation : IDisposable
                     ConditionFlag.MountOrOrnamentTransition))
             {
                 vnavmesh.Stop();
+                teleportStationarySinceUtc = DateTime.MinValue;
                 StatusText = "等待人物完全静止后传送";
+                diagnostics.WriteThrottled(
+                    "teleport-moving",
+                    "传送",
+                    $"尚未静止，继续等待：{BuildDiagnosticContext()}",
+                    TimeSpan.FromSeconds(2));
                 return;
             }
 
-            if (now - teleportPreparedUtc < TeleportPrepareDelay)
+            if (teleportStationarySinceUtc == DateTime.MinValue)
             {
-                StatusText = "正在停止移动，准备传送";
+                teleportStationarySinceUtc = now;
+                StatusText = "已停止移动，正在确认传送条件";
+                return;
+            }
+
+            if (now - teleportStationarySinceUtc < TeleportPrepareDelay)
+            {
+                StatusText = "正在确认人物保持静止";
                 return;
             }
 
             if (!TeleportService.CanTeleportNow())
             {
                 StatusText = "等待传送技能可用";
+                diagnostics.WriteThrottled(
+                    "teleport-action-unavailable",
+                    "传送",
+                    $"传送技能当前不可用：{BuildDiagnosticContext()}",
+                    TimeSpan.FromSeconds(2));
                 return;
             }
 
             if (teleportAetheryteId is not { } aetheryteId || !teleporter.Teleport(aetheryteId))
             {
                 Plugin.Log.Warning("Teleport request could not be submitted; continuing by navigation.");
+                diagnostics.Write("传送", $"提交传送请求失败，aetheryte={teleportAetheryteId?.ToString() ?? "null"}；恢复普通导航。");
                 ResetTeleportState();
                 ContinueAfterTeleportFailure();
                 return;
@@ -1020,6 +1028,7 @@ public sealed class MapFlagAutomation : IDisposable
                     MaxTeleportAttempts);
                 PrepareForTeleportAttempt();
                 teleportPreparedUtc = now;
+                teleportStationarySinceUtc = DateTime.MinValue;
                 teleportIssuedUtc = DateTime.MinValue;
                 teleportSawCasting = false;
                 teleportSawLoading = false;
@@ -1031,6 +1040,7 @@ public sealed class MapFlagAutomation : IDisposable
                 "Teleport to {AetheryteName} did not start after {AttemptCount} attempts; continuing by navigation.",
                 teleportAetheryteName,
                 teleportAttemptCount);
+            diagnostics.Write("传送", $"连续 {teleportAttemptCount} 次未观察到有效施法或读图，恢复普通导航。{BuildDiagnosticContext()}");
             ResetTeleportState();
             ContinueAfterTeleportFailure();
             return;
@@ -1041,6 +1051,7 @@ public sealed class MapFlagAutomation : IDisposable
             Plugin.Log.Warning(
                 "Teleport was not confirmed after {AttemptCount} attempt(s); continuing without teleport.",
                 teleportAttemptCount);
+            diagnostics.Write("传送", $"传送确认超时，恢复普通导航。{BuildDiagnosticContext()}");
             ResetTeleportState();
             ContinueAfterTeleportFailure();
         }
@@ -1104,9 +1115,13 @@ public sealed class MapFlagAutomation : IDisposable
         teleportOriginPosition = Plugin.ObjectTable.LocalPlayer?.Position;
         teleportAttemptCount = 0;
         teleportPreparedUtc = DateTime.UtcNow;
+        teleportStationarySinceUtc = DateTime.MinValue;
         teleportIssuedUtc = DateTime.MinValue;
         teleportSawCasting = false;
         teleportSawLoading = false;
+        diagnostics.Write(
+            "传送",
+            $"开始准备传送至 {candidate.Name}#{candidate.Id}，水晶位置=({candidate.Position.X:F1},{candidate.Position.Y:F1},{candidate.Position.Z:F1})；{BuildDiagnosticContext()}");
         SetState(AutomationState.Teleporting, $"正在停止导航，准备传送至 {candidate.Name}");
         return true;
     }
@@ -1130,6 +1145,7 @@ public sealed class MapFlagAutomation : IDisposable
         teleportOriginPosition = null;
         teleportAttemptCount = 0;
         teleportPreparedUtc = DateTime.MinValue;
+        teleportStationarySinceUtc = DateTime.MinValue;
         teleportIssuedUtc = DateTime.MinValue;
         teleportSawCasting = false;
         teleportSawLoading = false;
@@ -1208,6 +1224,11 @@ public sealed class MapFlagAutomation : IDisposable
         var name = source?.PlayerName ?? sender.TextValue;
         var worldId = source?.World.RowId ?? 0;
         ulong contentId = 0;
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = Plugin.ObjectTable.LocalPlayer?.Name.TextValue ?? "本地测试";
+        }
 
         var groupManager = GroupManager.Instance();
         var group = groupManager == null ? null : groupManager->GetGroup();
@@ -1343,8 +1364,23 @@ public sealed class MapFlagAutomation : IDisposable
 
     private void SetState(AutomationState state, string status)
     {
+        var previousState = State;
+        var previousStatus = StatusText;
         State = state;
         StatusText = status;
+        if (previousState != state || !string.Equals(previousStatus, status, StringComparison.Ordinal))
+        {
+            diagnostics.Write("状态", $"{previousState} -> {state}；{status}；{BuildDiagnosticContext()}");
+        }
+    }
+
+    private static string BuildDiagnosticContext()
+    {
+        var player = Plugin.ObjectTable.LocalPlayer;
+        var position = player == null
+            ? "无"
+            : $"({player.Position.X:F1},{player.Position.Y:F1},{player.Position.Z:F1})";
+        return $"territory={Plugin.ClientState.TerritoryType}，position={position}，mounted={IsMounted()}，inFlight={Plugin.Condition[ConditionFlag.InFlight]}，beingMoved={Plugin.Condition[ConditionFlag.BeingMoved]}，combat={Plugin.Condition[ConditionFlag.InCombat]}";
     }
 
     private sealed record SenderIdentity(string Name, uint WorldId, ulong ContentId);

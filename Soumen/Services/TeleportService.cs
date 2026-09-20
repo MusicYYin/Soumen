@@ -9,12 +9,18 @@ public sealed record AetheryteCandidate(uint Id, string Name, Vector3 Position);
 
 public sealed class TeleportService
 {
+    private readonly DiagnosticLogger diagnostics;
+
+    public TeleportService(DiagnosticLogger diagnostics)
+        => this.diagnostics = diagnostics;
+
     public unsafe IReadOnlyList<AetheryteCandidate> GetCandidates(uint territoryId)
     {
         var result = new List<AetheryteCandidate>();
         var telepo = Telepo.Instance();
         if (telepo == null || Plugin.ObjectTable.LocalPlayer == null || telepo->UpdateAetheryteList() == null)
         {
+            diagnostics.Write("传送", $"无法读取已解锁传送列表。territory={territoryId}，telepo={telepo != null}，player={Plugin.ObjectTable.LocalPlayer != null}");
             return result;
         }
 
@@ -46,6 +52,11 @@ public sealed class TeleportService
                 position.Value));
         }
 
+        diagnostics.Write(
+            "传送",
+            result.Count == 0
+                ? $"territory={territoryId} 未找到可用的已解锁以太水晶。"
+                : $"territory={territoryId} 候选水晶：{string.Join("；", result.Select(candidate => $"{candidate.Name}#{candidate.Id}({candidate.Position.X:F1},{candidate.Position.Z:F1})"))}");
         return result;
     }
 
@@ -62,6 +73,7 @@ public sealed class TeleportService
         var telepo = Telepo.Instance();
         if (telepo == null || !IsAttuned(aetheryteId))
         {
+            diagnostics.Write("传送", $"拒绝提交传送：水晶 #{aetheryteId} 不在当前已解锁传送列表中。telepo={telepo != null}");
             return false;
         }
 
@@ -73,6 +85,7 @@ public sealed class TeleportService
             "Submitted teleport request for aetheryte {AetheryteId}; native result: {NativeResult}.",
             aetheryteId,
             nativeResult);
+        diagnostics.Write("传送", $"已提交水晶 #{aetheryteId} 的传送请求，nativeResult={nativeResult}；后续以施法和读图状态确认。");
         return true;
     }
 
