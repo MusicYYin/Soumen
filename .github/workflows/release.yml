@@ -41,7 +41,7 @@ jobs:
       - name: Build release
         shell: pwsh
         run: |
-          dotnet build Soumen/Soumen.csproj `
+          dotnet build Soumen.slnx `
             --configuration Release `
             --nologo `
             -p:Version="$env:RELEASE_VERSION" `

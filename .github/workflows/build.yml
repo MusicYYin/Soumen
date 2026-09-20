@@ -29,7 +29,7 @@ jobs:
           Expand-Archive -Force latest.zip $path
 
       - name: Build
-        run: dotnet build Soumen/Soumen.csproj --configuration Release --nologo
+        run: dotnet build Soumen.slnx --configuration Release --nologo
 
       - name: Store plugin artifact
         uses: actions/upload-artifact@v4
