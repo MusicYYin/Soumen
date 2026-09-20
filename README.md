@@ -24,10 +24,12 @@ Soumen 是一个面向 FF14 藏宝图队伍流程的 Dalamud 插件。它只监�
 在 Dalamud 设置的“实验性功能 → 自定义插件仓库”中添加：
 
 ```text
-https://raw.githubusercontent.com/MusicYYin/Soumen/main/repo.json
+https://raw.githubusercontent.com/MusicYYin/DalamudPlugins/main/pluginmaster.json
 ```
 
 保存后，在插件安装器中搜索 `Soumen`。
+
+原有的 `https://raw.githubusercontent.com/MusicYYin/Soumen/main/repo.json` 仍保留兼容；建议新安装使用上面的聚合库链，以便后续直接获取 MusicYYin 发布的其他插件。
 
 ### 依赖
 
