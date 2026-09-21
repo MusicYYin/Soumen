@@ -19,7 +19,7 @@ public sealed class Configuration : IPluginConfiguration
     [JsonIgnore]
     private IDalamudPluginInterface? pluginInterface;
 
-    public int Version { get; set; } = 8;
+    public int Version { get; set; } = 9;
 
     public OperatingMode OperatingMode { get; set; } = OperatingMode.Follow;
 
@@ -47,7 +47,20 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool AutoDiscardEnabled { get; set; } = false;
 
+    // Kept for one-time migration from 0.4.0 and earlier.
     public HashSet<uint> AutoDiscardItemIds { get; set; } = [];
+
+    public List<DiscardPreset> AutoDiscardPresets { get; set; } = [];
+
+    public string ActiveAutoDiscardPresetId { get; set; } = string.Empty;
+
+    public long StatisticsGilEarned { get; set; }
+
+    public int StatisticsTreasureDungeonEntries { get; set; }
+
+    public int StatisticsTreasureDungeonCompletions { get; set; }
+
+    public UiTheme UiTheme { get; set; } = UiTheme.Ocean;
 
     public bool TeleportWhenStuck { get; set; } = true;
 
@@ -103,9 +116,160 @@ public sealed class Configuration : IPluginConfiguration
         }
 
         configuration.AutoDiscardItemIds ??= [];
-        configuration.Version = 8;
+        configuration.AutoDiscardPresets ??= [];
+        configuration.NormalizeDiscardPresets();
+        configuration.Version = 9;
         configuration.Save();
         return configuration;
+    }
+
+    [JsonIgnore]
+    public DiscardPreset ActiveDiscardPreset
+    {
+        get
+        {
+            NormalizeDiscardPresets();
+            return AutoDiscardPresets.First(preset => preset.Id == ActiveAutoDiscardPresetId);
+        }
+    }
+
+    public HashSet<uint> ResolveActiveDiscardItemIds()
+        => ResolveDiscardItemIds(ActiveDiscardPreset.Id);
+
+    public HashSet<uint> ResolveDiscardItemIds(string presetId)
+    {
+        var result = new HashSet<uint>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+
+        void AddPreset(string id)
+        {
+            if (!visited.Add(id))
+            {
+                return;
+            }
+
+            var preset = AutoDiscardPresets.FirstOrDefault(candidate => candidate.Id == id);
+            if (preset == null)
+            {
+                return;
+            }
+
+            result.UnionWith(preset.ItemIds);
+            foreach (var includedId in preset.IncludedPresetIds)
+            {
+                AddPreset(includedId);
+            }
+        }
+
+        AddPreset(presetId);
+        return result;
+    }
+
+    public bool CanIncludeDiscardPreset(string parentId, string candidateId)
+    {
+        if (parentId == candidateId
+            || AutoDiscardPresets.All(preset => preset.Id != parentId)
+            || AutoDiscardPresets.All(preset => preset.Id != candidateId))
+        {
+            return false;
+        }
+
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        bool ReachesParent(string id)
+        {
+            if (id == parentId)
+            {
+                return true;
+            }
+
+            if (!visited.Add(id))
+            {
+                return false;
+            }
+
+            var preset = AutoDiscardPresets.FirstOrDefault(candidate => candidate.Id == id);
+            return preset != null && preset.IncludedPresetIds.Any(ReachesParent);
+        }
+
+        return !ReachesParent(candidateId);
+    }
+
+    public DiscardPreset CreateDiscardPreset(string? name = null)
+    {
+        var preset = new DiscardPreset
+        {
+            Name = string.IsNullOrWhiteSpace(name) ? $"预设 {AutoDiscardPresets.Count + 1}" : name.Trim(),
+        };
+        AutoDiscardPresets.Add(preset);
+        ActiveAutoDiscardPresetId = preset.Id;
+        return preset;
+    }
+
+    public bool DeleteDiscardPreset(string presetId)
+    {
+        if (AutoDiscardPresets.Count <= 1)
+        {
+            return false;
+        }
+
+        var removed = AutoDiscardPresets.RemoveAll(preset => preset.Id == presetId) > 0;
+        if (!removed)
+        {
+            return false;
+        }
+
+        foreach (var preset in AutoDiscardPresets)
+        {
+            preset.IncludedPresetIds.Remove(presetId);
+        }
+
+        if (ActiveAutoDiscardPresetId == presetId)
+        {
+            ActiveAutoDiscardPresetId = AutoDiscardPresets[0].Id;
+        }
+
+        return true;
+    }
+
+    private void NormalizeDiscardPresets()
+    {
+        AutoDiscardPresets ??= [];
+        AutoDiscardItemIds ??= [];
+
+        if (AutoDiscardPresets.Count == 0)
+        {
+            AutoDiscardPresets.Add(new DiscardPreset
+            {
+                Name = "默认",
+                ItemIds = [.. AutoDiscardItemIds],
+            });
+        }
+
+        var usedIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var preset in AutoDiscardPresets)
+        {
+            if (string.IsNullOrWhiteSpace(preset.Id) || !usedIds.Add(preset.Id))
+            {
+                preset.Id = Guid.NewGuid().ToString("N");
+                usedIds.Add(preset.Id);
+            }
+
+            preset.Name = string.IsNullOrWhiteSpace(preset.Name) ? "未命名预设" : preset.Name.Trim();
+            preset.ItemIds ??= [];
+            preset.IncludedPresetIds ??= [];
+        }
+
+        foreach (var preset in AutoDiscardPresets)
+        {
+            preset.IncludedPresetIds.RemoveWhere(id => id == preset.Id || !usedIds.Contains(id));
+        }
+
+        if (!usedIds.Contains(ActiveAutoDiscardPresetId))
+        {
+            ActiveAutoDiscardPresetId = AutoDiscardPresets[0].Id;
+        }
+
+        AutoDiscardItemIds.Clear();
     }
 
     public void Save()

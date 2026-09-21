@@ -10,8 +10,6 @@ namespace Soumen.Windows;
 
 public sealed class MainWindow : Window
 {
-    private static readonly Vector4 Accent = new(0.31f, 0.67f, 0.94f, 1f);
-    private static readonly Vector4 AccentSoft = new(0.10f, 0.20f, 0.29f, 0.96f);
     private static readonly Vector4 Panel = new(0.075f, 0.085f, 0.105f, 0.96f);
     private static readonly Vector4 Success = new(0.34f, 0.84f, 0.56f, 1f);
     private static readonly Vector4 Warning = new(1f, 0.72f, 0.30f, 1f);
@@ -22,15 +20,25 @@ public sealed class MainWindow : Window
     private readonly MapFlagAutomation automation;
     private readonly LeaderTreasureAutomation leaderAutomation;
     private readonly AutoDiscardService autoDiscardService;
+    private readonly StatisticsService statisticsService;
     private readonly DiagnosticLogger diagnostics;
     private string discardSearch = string.Empty;
     private int discardSource;
+    private string presetNameDraft = string.Empty;
+    private string? presetDraftId;
+    private string includePresetId = string.Empty;
+    private bool confirmStatisticsReset;
+
+    private ThemePalette Theme => GetTheme(configuration.UiTheme);
+    private Vector4 Accent => Theme.Accent;
+    private Vector4 AccentSoft => Theme.AccentSoft;
 
     public MainWindow(
         Configuration configuration,
         MapFlagAutomation automation,
         LeaderTreasureAutomation leaderAutomation,
         AutoDiscardService autoDiscardService,
+        StatisticsService statisticsService,
         DiagnosticLogger diagnostics)
         : base("Soumen##SoumenMain")
     {
@@ -38,6 +46,7 @@ public sealed class MainWindow : Window
         this.automation = automation;
         this.leaderAutomation = leaderAutomation;
         this.autoDiscardService = autoDiscardService;
+        this.statisticsService = statisticsService;
         this.diagnostics = diagnostics;
 
         SizeConstraints = new WindowSizeConstraints
@@ -72,6 +81,12 @@ public sealed class MainWindow : Window
         if (ImGui.BeginTabItem("自动丢弃"))
         {
             DrawAutoDiscard();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("统计"))
+        {
+            DrawStatistics();
             ImGui.EndTabItem();
         }
 
@@ -150,7 +165,7 @@ public sealed class MainWindow : Window
         var selected = configuration.OperatingMode == mode;
         ImGui.PushStyleColor(ImGuiCol.Button, selected ? AccentSoft : Panel);
         ImGui.PushStyleColor(ImGuiCol.ButtonHovered,
-            selected ? new Vector4(0.13f, 0.29f, 0.41f, 1f) : new Vector4(0.12f, 0.14f, 0.18f, 1f));
+            selected ? Theme.ButtonHovered : new Vector4(0.12f, 0.14f, 0.18f, 1f));
         ImGui.PushStyleColor(ImGuiCol.Text, selected ? Accent : Muted);
         if (ImGui.Button($"{title}\n{subtitle}##{mode}", new Vector2(width, 54f * scale)))
         {
@@ -166,8 +181,8 @@ public sealed class MainWindow : Window
         ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 7f * scale);
 
         var enabled = configuration.Enabled;
-        ImGui.PushStyleColor(ImGuiCol.Button, enabled ? new Vector4(0.34f, 0.14f, 0.17f, 1f) : new Vector4(0.11f, 0.40f, 0.66f, 1f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, enabled ? new Vector4(0.48f, 0.19f, 0.22f, 1f) : new Vector4(0.16f, 0.50f, 0.79f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.Button, enabled ? new Vector4(0.34f, 0.14f, 0.17f, 1f) : Theme.Button);
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, enabled ? new Vector4(0.48f, 0.19f, 0.22f, 1f) : Theme.ButtonHovered);
         if (ImGui.Button(enabled ? "关闭 Soumen" : "开启 Soumen", new Vector2(150f, 38f) * scale))
         {
             automation.SetEnabled(!enabled);
@@ -345,7 +360,7 @@ public sealed class MainWindow : Window
             DrawDependencyRow("AE Assist", automation.AeAssistInstalled,
                 automation.AeAssistInstalled ? "已连接" : "未加载（可选）");
             DrawDependencyRow("BossMod Reborn", automation.BossModRebornInstalled,
-                automation.BossModRebornInstalled ? "AI 已由 Soumen 管理" : "未加载（可选）");
+                automation.BossModRebornInstalled ? "已连接" : "未加载（可选）");
             ImGui.EndTable();
         }
     }
@@ -426,6 +441,33 @@ public sealed class MainWindow : Window
         }
 
         ImGui.Spacing();
+        if (ImGui.CollapsingHeader("界面", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            ImGui.SetNextItemWidth(260f * ImGuiHelpers.GlobalScale);
+            if (ImGui.BeginCombo("主题颜色##SoumenUiTheme", GetThemeName(configuration.UiTheme)))
+            {
+                foreach (var theme in Enum.GetValues<UiTheme>())
+                {
+                    var selected = configuration.UiTheme == theme;
+                    ImGui.PushStyleColor(ImGuiCol.Text, GetTheme(theme).Accent);
+                    if (ImGui.Selectable(GetThemeName(theme), selected))
+                    {
+                        configuration.UiTheme = theme;
+                        configuration.Save();
+                    }
+
+                    ImGui.PopStyleColor();
+                    if (selected)
+                    {
+                        ImGui.SetItemDefaultFocus();
+                    }
+                }
+
+                ImGui.EndCombo();
+            }
+        }
+
+        ImGui.Spacing();
         if (ImGui.CollapsingHeader("开发者模式"))
         {
             DrawCheckbox("识别所有聊天坐标", nameof(configuration.RecognizeAllChatCoordinates), configuration.RecognizeAllChatCoordinates,
@@ -444,10 +486,10 @@ public sealed class MainWindow : Window
         }
     }
 
-    private static void DrawAbout()
+    private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.0");
+        DrawSectionTitle("Soumen 0.4.1");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
@@ -460,7 +502,7 @@ public sealed class MainWindow : Window
         DrawSectionTitle("自动丢弃");
 
         var enabled = configuration.AutoDiscardEnabled;
-        if (ImGui.Checkbox("只处理本轮挖宝新获得的物品", ref enabled))
+        if (ImGui.Checkbox("启用自动丢弃", ref enabled))
         {
             configuration.AutoDiscardEnabled = enabled;
             configuration.Save();
@@ -468,7 +510,7 @@ public sealed class MainWindow : Window
 
         ImGui.TextColored(
             Muted,
-            "到达藏宝图坐标或进入宝物库时开始记账；只丢弃数量与新增记录完全一致的独立整堆。合并或数量不一致时跳过。" );
+            "只处理本轮挖宝后出现在原空格中的新增整堆；合并进旧堆或数量不一致时会跳过。" );
         ImGui.Spacing();
 
         var sessionColor = autoDiscardService.SessionActive ? Success : Muted;
@@ -483,12 +525,12 @@ public sealed class MainWindow : Window
         }
 
         ImGui.TableSetupColumn("可选物品", ImGuiTableColumnFlags.WidthStretch, 1.25f);
-        ImGui.TableSetupColumn("自动丢弃", ImGuiTableColumnFlags.WidthStretch, 0.95f);
+        ImGui.TableSetupColumn("丢弃预设", ImGuiTableColumnFlags.WidthStretch, 1.05f);
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
         DrawDiscardSourcePanel();
         ImGui.TableNextColumn();
-        DrawDiscardSelectedPanel();
+        DrawDiscardPresetPanel();
         ImGui.EndTable();
     }
 
@@ -497,13 +539,14 @@ public sealed class MainWindow : Window
         var scale = ImGuiHelpers.GlobalScale;
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8f * scale);
         ImGui.PushStyleColor(ImGuiCol.ChildBg, Panel);
-        ImGui.BeginChild("##SoumenDiscardSource", new Vector2(0f, 350f * scale), true);
+        ImGui.BeginChild("##SoumenDiscardSource", new Vector2(0f, 420f * scale), true);
 
         ImGui.TextColored(Accent, "可选物品");
         ImGui.SameLine();
         ImGui.TextColored(Muted, "右键加入");
 
-        var sourceNames = new[] { "本轮掉落", "G18 / 宝物库", "常见普通材料", "非暴信直魔晶石", "搜索全部" };
+        var sourceNames = new[] { "最近掉落", "搜索全部" };
+        discardSource = Math.Clamp(discardSource, 0, sourceNames.Length - 1);
         ImGui.SetNextItemWidth(-1f);
         if (ImGui.BeginCombo("##SoumenDiscardSourcePicker", sourceNames[discardSource]))
         {
@@ -527,8 +570,8 @@ public sealed class MainWindow : Window
         {
             var emptyText = discardSource switch
             {
-                0 => "本轮获得过的物品会显示在这里。",
-                4 when discardSearch.Trim().Length < 2 => "输入至少两个字开始搜索。",
+                0 => "挖宝期间最近获得的 20 种物品会显示在这里。",
+                1 when discardSearch.Trim().Length < 2 => "输入至少两个字开始搜索。",
                 _ => "没有匹配的物品。",
             };
             ImGui.TextColored(Muted, emptyText);
@@ -546,25 +589,142 @@ public sealed class MainWindow : Window
         ImGui.PopStyleVar();
     }
 
-    private void DrawDiscardSelectedPanel()
+    private void DrawDiscardPresetPanel()
     {
         var scale = ImGuiHelpers.GlobalScale;
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8f * scale);
         ImGui.PushStyleColor(ImGuiCol.ChildBg, Panel);
-        ImGui.BeginChild("##SoumenDiscardSelected", new Vector2(0f, 350f * scale), true);
+        ImGui.BeginChild("##SoumenDiscardPreset", new Vector2(0f, 420f * scale), true);
 
-        ImGui.TextColored(Accent, "已选择");
+        ImGui.TextColored(Accent, "丢弃预设");
+        var activePreset = configuration.ActiveDiscardPreset;
+        EnsurePresetDraft(activePreset);
+
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.BeginCombo("##SoumenDiscardPresetPicker", activePreset.Name))
+        {
+            foreach (var preset in configuration.AutoDiscardPresets)
+            {
+                var selected = preset.Id == activePreset.Id;
+                if (ImGui.Selectable($"{preset.Name}##preset-{preset.Id}", selected))
+                {
+                    configuration.ActiveAutoDiscardPresetId = preset.Id;
+                    presetDraftId = null;
+                    includePresetId = string.Empty;
+                    configuration.Save();
+                }
+
+                if (selected)
+                {
+                    ImGui.SetItemDefaultFocus();
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        ImGui.SetNextItemWidth(-1f);
+        ImGui.InputTextWithHint("##SoumenPresetName", "预设名称", ref presetNameDraft, 48);
+
+        if (ImGui.Button("保存名称"))
+        {
+            var name = presetNameDraft.Trim();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                activePreset.Name = name;
+                presetNameDraft = name;
+                configuration.Save();
+            }
+        }
+
         ImGui.SameLine();
-        ImGui.TextColored(Muted, "右键移除");
+        if (ImGui.Button("新建预设"))
+        {
+            var preset = configuration.CreateDiscardPreset();
+            presetDraftId = preset.Id;
+            presetNameDraft = preset.Name;
+            includePresetId = string.Empty;
+            configuration.Save();
+            activePreset = preset;
+        }
+
+        ImGui.SameLine();
+        ImGui.BeginDisabled(configuration.AutoDiscardPresets.Count <= 1);
+        if (ImGui.Button("删除预设") && configuration.DeleteDiscardPreset(activePreset.Id))
+        {
+            presetDraftId = null;
+            includePresetId = string.Empty;
+            configuration.Save();
+            activePreset = configuration.ActiveDiscardPreset;
+        }
+        ImGui.EndDisabled();
+
+        var availableIncludes = configuration.AutoDiscardPresets
+            .Where(preset => preset.Id != activePreset.Id
+                && !activePreset.IncludedPresetIds.Contains(preset.Id)
+                && configuration.CanIncludeDiscardPreset(activePreset.Id, preset.Id))
+            .ToList();
+        if (availableIncludes.All(preset => preset.Id != includePresetId))
+        {
+            includePresetId = availableIncludes.FirstOrDefault()?.Id ?? string.Empty;
+        }
+
+        ImGui.Spacing();
+        ImGui.BeginDisabled(availableIncludes.Count == 0);
+        var includeName = availableIncludes.FirstOrDefault(preset => preset.Id == includePresetId)?.Name
+            ?? "没有可加入的预设";
+        ImGui.SetNextItemWidth(Math.Max(120f * scale, ImGui.GetContentRegionAvail().X - 104f * scale));
+        if (ImGui.BeginCombo("##SoumenIncludePreset", includeName))
+        {
+            foreach (var preset in availableIncludes)
+            {
+                if (ImGui.Selectable($"{preset.Name}##include-{preset.Id}", preset.Id == includePresetId))
+                {
+                    includePresetId = preset.Id;
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("加入预设") && !string.IsNullOrWhiteSpace(includePresetId))
+        {
+            activePreset.IncludedPresetIds.Add(includePresetId);
+            includePresetId = string.Empty;
+            configuration.Save();
+        }
+        ImGui.EndDisabled();
+
+        foreach (var includedId in activePreset.IncludedPresetIds.ToList())
+        {
+            var included = configuration.AutoDiscardPresets.FirstOrDefault(preset => preset.Id == includedId);
+            if (included == null)
+            {
+                continue;
+            }
+
+            ImGui.PushID($"included-{included.Id}");
+            ImGui.TextColored(Muted, $"组合：{included.Name}");
+            ImGui.SameLine();
+            if (ImGui.SmallButton("移除"))
+            {
+                activePreset.IncludedPresetIds.Remove(included.Id);
+                configuration.Save();
+            }
+            ImGui.PopID();
+        }
+
         ImGui.Separator();
 
         var items = autoDiscardService.SelectedItems;
         if (items.Count == 0)
         {
-            ImGui.TextColored(Muted, "还没有添加物品。左侧右键即可加入。");
+            ImGui.TextColored(Muted, "当前预设为空。左侧右键加入物品，或组合另一个预设。");
         }
         else
         {
+            ImGui.TextColored(Muted, $"生效物品 {items.Count} 种 · 右键移除当前预设中的物品");
             foreach (var item in items)
             {
                 DrawDiscardItemRow(item, source: false);
@@ -581,14 +741,11 @@ public sealed class MainWindow : Window
         IReadOnlyList<DiscardCatalogItem> items = discardSource switch
         {
             0 => autoDiscardService.ObservedItems,
-            1 => autoDiscardService.G18Items,
-            2 => autoDiscardService.CommonMaterials,
-            3 => autoDiscardService.NonPriorityMateria,
             _ => autoDiscardService.Search(discardSearch),
         };
 
         var query = discardSearch.Trim();
-        if (discardSource == 4 || string.IsNullOrWhiteSpace(query))
+        if (discardSource == 1 || string.IsNullOrWhiteSpace(query))
         {
             return items;
         }
@@ -609,17 +766,20 @@ public sealed class MainWindow : Window
         ImGui.Image(texture.Handle, new Vector2(24f, 24f) * scale);
         ImGui.SameLine();
 
-        var selected = configuration.AutoDiscardItemIds.Contains(item.ItemId);
+        var activePreset = configuration.ActiveDiscardPreset;
+        var selected = configuration.ResolveActiveDiscardItemIds().Contains(item.ItemId);
+        var direct = activePreset.ItemIds.Contains(item.ItemId);
         var pending = autoDiscardService.PendingQuantity(item.ItemId);
-        var label = pending > 0 ? $"{item.Name}  ·  本轮 +{pending}" : item.Name;
+        var inherited = !source && !direct ? "  ·  来自组合预设" : string.Empty;
+        var label = pending > 0 ? $"{item.Name}  ·  本轮 +{pending}{inherited}" : item.Name + inherited;
         ImGui.Selectable($"{label}##row", selected && source, ImGuiSelectableFlags.None, new Vector2(0f, 24f * scale));
 
         if (source && ImGui.BeginPopupContextItem("##add"))
         {
             ImGui.BeginDisabled(selected);
-            if (ImGui.MenuItem(selected ? "已在自动丢弃列表" : "加入自动丢弃"))
+            if (ImGui.MenuItem(selected ? "当前预设已包含" : "加入当前预设"))
             {
-                configuration.AutoDiscardItemIds.Add(item.ItemId);
+                activePreset.ItemIds.Add(item.ItemId);
                 configuration.Save();
             }
 
@@ -628,24 +788,101 @@ public sealed class MainWindow : Window
         }
         else if (!source && ImGui.BeginPopupContextItem("##remove"))
         {
-            if (ImGui.MenuItem("从列表移除"))
+            ImGui.BeginDisabled(!direct);
+            if (ImGui.MenuItem(direct ? "从当前预设移除" : "由组合预设提供"))
             {
-                configuration.AutoDiscardItemIds.Remove(item.ItemId);
+                activePreset.ItemIds.Remove(item.ItemId);
                 configuration.Save();
             }
+            ImGui.EndDisabled();
 
             ImGui.EndPopup();
         }
 
         if (ImGui.IsItemHovered())
         {
-            ImGui.SetTooltip($"{item.Name}\n物品 ID：{item.ItemId}\n{(source ? "右键加入" : "右键移除")}");
+            var action = source ? "右键加入当前预设" : direct ? "右键从当前预设移除" : "来自组合预设";
+            ImGui.SetTooltip($"{item.Name}\n物品 ID：{item.ItemId}\n{action}");
         }
 
         ImGui.PopID();
     }
 
-    private static void DrawSectionTitle(string title)
+    private void EnsurePresetDraft(DiscardPreset preset)
+    {
+        if (presetDraftId == preset.Id)
+        {
+            return;
+        }
+
+        presetDraftId = preset.Id;
+        presetNameDraft = preset.Name;
+    }
+
+    private void DrawStatistics()
+    {
+        ImGui.Spacing();
+        DrawSectionTitle("统计");
+        ImGui.TextColored(Muted, "自上次重置起，统计 Soumen 开启期间的数据。");
+        ImGui.Spacing();
+
+        if (ImGui.BeginTable("##SoumenStatistics", 3, ImGuiTableFlags.SizingStretchSame))
+        {
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            DrawStatisticCard("获得金币", statisticsService.GilEarned.ToString("N0"), "Gil", Accent);
+            ImGui.TableNextColumn();
+            DrawStatisticCard("进入宝物库", statisticsService.TreasureDungeonEntries.ToString("N0"), "次", Success);
+            ImGui.TableNextColumn();
+            DrawStatisticCard("下底", statisticsService.TreasureDungeonCompletions.ToString("N0"), "次", Warning);
+            ImGui.EndTable();
+        }
+
+        ImGui.Spacing();
+        if (!confirmStatisticsReset)
+        {
+            if (ImGui.Button("重置统计"))
+            {
+                confirmStatisticsReset = true;
+            }
+        }
+        else
+        {
+            ImGui.TextColored(Warning, "确定清空全部统计数据？");
+            if (ImGui.Button("确认重置"))
+            {
+                statisticsService.Reset();
+                confirmStatisticsReset = false;
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("取消"))
+            {
+                confirmStatisticsReset = false;
+            }
+        }
+    }
+
+    private void DrawStatisticCard(string title, string value, string unit, Vector4 color)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8f * scale);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, Panel);
+        ImGui.BeginChild($"##stat-{title}", new Vector2(0f, 112f * scale), true);
+        ImGui.SetCursorPos(new Vector2(14f, 13f) * scale);
+        ImGui.TextColored(Muted, title);
+        ImGui.SetCursorPosX(14f * scale);
+        ImGui.SetWindowFontScale(1.55f);
+        ImGui.TextColored(color, value);
+        ImGui.SetWindowFontScale(1f);
+        ImGui.SameLine();
+        ImGui.TextColored(Muted, unit);
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
+        ImGui.PopStyleVar();
+    }
+
+    private void DrawSectionTitle(string title)
     {
         ImGui.PushStyleColor(ImGuiCol.Text, Accent);
         ImGui.TextUnformatted(title);
@@ -672,7 +909,7 @@ public sealed class MainWindow : Window
         }
     }
 
-    private static Vector4 GetStateColor(AutomationState state)
+    private Vector4 GetStateColor(AutomationState state)
         => state switch
         {
             AutomationState.Idle => Success,
@@ -683,7 +920,7 @@ public sealed class MainWindow : Window
             _ => Accent,
         };
 
-    private static Vector4 GetLeaderStateColor(LeaderAutomationState state)
+    private Vector4 GetLeaderStateColor(LeaderAutomationState state)
         => state switch
         {
             LeaderAutomationState.Inactive => Muted,
@@ -732,4 +969,51 @@ public sealed class MainWindow : Window
             AutomationState.Error => "异常",
             _ => state.ToString(),
         };
+
+    private static string GetThemeName(UiTheme theme)
+        => theme switch
+        {
+            UiTheme.Ocean => "海蓝",
+            UiTheme.Violet => "紫藤",
+            UiTheme.Emerald => "翡翠",
+            UiTheme.Coral => "珊瑚",
+            UiTheme.Gold => "金沙",
+            _ => "海蓝",
+        };
+
+    private static ThemePalette GetTheme(UiTheme theme)
+        => theme switch
+        {
+            UiTheme.Violet => new(
+                new Vector4(0.72f, 0.57f, 0.96f, 1f),
+                new Vector4(0.22f, 0.16f, 0.32f, 0.96f),
+                new Vector4(0.39f, 0.27f, 0.67f, 1f),
+                new Vector4(0.51f, 0.36f, 0.82f, 1f)),
+            UiTheme.Emerald => new(
+                new Vector4(0.32f, 0.84f, 0.66f, 1f),
+                new Vector4(0.10f, 0.27f, 0.22f, 0.96f),
+                new Vector4(0.12f, 0.48f, 0.36f, 1f),
+                new Vector4(0.17f, 0.60f, 0.45f, 1f)),
+            UiTheme.Coral => new(
+                new Vector4(0.97f, 0.54f, 0.48f, 1f),
+                new Vector4(0.31f, 0.16f, 0.17f, 0.96f),
+                new Vector4(0.62f, 0.27f, 0.25f, 1f),
+                new Vector4(0.76f, 0.35f, 0.32f, 1f)),
+            UiTheme.Gold => new(
+                new Vector4(0.94f, 0.73f, 0.36f, 1f),
+                new Vector4(0.30f, 0.24f, 0.12f, 0.96f),
+                new Vector4(0.57f, 0.42f, 0.13f, 1f),
+                new Vector4(0.70f, 0.53f, 0.19f, 1f)),
+            _ => new(
+                new Vector4(0.31f, 0.67f, 0.94f, 1f),
+                new Vector4(0.10f, 0.20f, 0.29f, 0.96f),
+                new Vector4(0.11f, 0.40f, 0.66f, 1f),
+                new Vector4(0.16f, 0.50f, 0.79f, 1f)),
+        };
+
+    private readonly record struct ThemePalette(
+        Vector4 Accent,
+        Vector4 AccentSoft,
+        Vector4 Button,
+        Vector4 ButtonHovered);
 }
