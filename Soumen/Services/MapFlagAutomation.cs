@@ -4,6 +4,7 @@ using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
+using Dalamud.Utility;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Group;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
@@ -65,6 +66,10 @@ public sealed class MapFlagAutomation : IDisposable
     private bool teleportSawLoading;
     private bool partyTeleportSawLoading;
     private bool disposed;
+    private uint pendingOwnFlagTerritory;
+    private int pendingOwnFlagRawX;
+    private int pendingOwnFlagRawY;
+    private DateTime pendingOwnFlagExpiresUtc = DateTime.MinValue;
 
     public MapFlagAutomation(Configuration configuration, DiagnosticLogger diagnostics)
     {
@@ -98,6 +103,8 @@ public sealed class MapFlagAutomation : IDisposable
 
     public bool IsPaused => paused;
 
+    public OperatingMode Mode => configuration.OperatingMode;
+
     public IReadOnlyList<MapFlagTarget> Destinations
         => destinations.Values.OrderByDescending(target => target.ReceivedAtUtc).ToList();
 
@@ -109,7 +116,91 @@ public sealed class MapFlagAutomation : IDisposable
 
     public bool BossModRebornInstalled => externalPlugins.BossModRebornInstalled;
 
-    public event Action? DestinationReached;
+    public event Action<MapFlagTarget>? DestinationReached;
+
+    public void SetOperatingMode(OperatingMode mode)
+    {
+        if (configuration.OperatingMode == mode)
+        {
+            return;
+        }
+
+        configuration.OperatingMode = mode;
+        configuration.Save();
+        Stop(mode == OperatingMode.Leader ? "已切换到车头模式" : "已切换到跟车模式");
+        diagnostics.Write("模式", mode == OperatingMode.Leader ? "切换到车头模式。" : "切换到跟车模式。");
+    }
+
+    public unsafe MapFlagTarget? RegisterOwnFlagFromGame()
+    {
+        var agent = AgentMap.Instance();
+        if (agent == null || agent->FlagMarkerCount == 0)
+        {
+            return null;
+        }
+
+        var marker = agent->FlagMapMarkers[0];
+        if (marker.TerritoryId == 0 || marker.MapId == 0)
+        {
+            return null;
+        }
+
+        var rawX = (int)MathF.Round(marker.XFloat * 1000f, MidpointRounding.AwayFromZero);
+        var rawY = (int)MathF.Round(marker.YFloat * 1000f, MidpointRounding.AwayFromZero);
+        var mapX = marker.XFloat;
+        var mapY = marker.YFloat;
+        var placeName = $"Territory {marker.TerritoryId}";
+        try
+        {
+            if (Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Map>().TryGetRow(marker.MapId, out var map))
+            {
+                var mapPoint = MapUtil.WorldToMap(new Vector2(marker.XFloat, marker.YFloat), map);
+                mapX = mapPoint.X;
+                mapY = mapPoint.Y;
+            }
+
+            if (Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>().TryGetRow(marker.TerritoryId, out var territory))
+            {
+                placeName = territory.PlaceName.ValueNullable?.Name.ToString() ?? placeName;
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Warning(ex, "Failed to resolve own treasure flag display coordinates.");
+        }
+
+        var target = new MapFlagTarget(
+            ++serial,
+            "我（藏宝图）",
+            Plugin.ObjectTable.LocalPlayer?.Name.TextValue ?? "我",
+            0,
+            0,
+            marker.TerritoryId,
+            marker.MapId,
+            rawX,
+            rawY,
+            mapX,
+            mapY,
+            placeName,
+            DateTime.UtcNow,
+            true);
+
+        destinations[target.SenderKey] = target;
+        pendingOwnFlagTerritory = target.TerritoryId;
+        pendingOwnFlagRawX = target.RawX;
+        pendingOwnFlagRawY = target.RawY;
+        pendingOwnFlagExpiresUtc = DateTime.UtcNow + TimeSpan.FromSeconds(8);
+
+        if (configuration.OperatingMode == OperatingMode.Leader)
+        {
+            SelectTarget(target, isManual: false);
+        }
+
+        diagnostics.Write(
+            "车头",
+            $"登记自己的藏宝图坐标：territory={target.TerritoryId}，map={target.MapId}，world=({marker.XFloat:F1},{marker.YFloat:F1})。" );
+        return target;
+    }
 
     public void SetEnabled(bool enabled)
     {
@@ -189,6 +280,13 @@ public sealed class MapFlagAutomation : IDisposable
             return false;
         }
 
+        if (configuration.OperatingMode == OperatingMode.Leader && !target.IsOwnTreasure)
+        {
+            configuration.OperatingMode = OperatingMode.Follow;
+            configuration.Save();
+            diagnostics.Write("模式", "车头模式下手动选择了队友坐标，已切换到跟车模式。");
+        }
+
         SelectTarget(target, isManual: true);
         return true;
     }
@@ -240,9 +338,15 @@ public sealed class MapFlagAutomation : IDisposable
         var senderText = string.IsNullOrWhiteSpace(message.Sender.TextValue)
             ? sender.Name
             : message.Sender.TextValue;
+        var rawX = mapLink.RawX;
+        var rawY = mapLink.RawY;
+        var isOwnTreasure = DateTime.UtcNow <= pendingOwnFlagExpiresUtc
+            && mapLink.TerritoryType.RowId == pendingOwnFlagTerritory
+            && Math.Abs(rawX - pendingOwnFlagRawX) <= 2
+            && Math.Abs(rawY - pendingOwnFlagRawY) <= 2;
         var target = new MapFlagTarget(
             ++serial,
-            senderText,
+            isOwnTreasure ? "我（藏宝图）" : senderText,
             sender.Name,
             sender.WorldId,
             sender.ContentId,
@@ -253,7 +357,8 @@ public sealed class MapFlagAutomation : IDisposable
             mapLink.XCoord,
             mapLink.YCoord,
             mapLink.PlaceName,
-            DateTime.UtcNow);
+            DateTime.UtcNow,
+            isOwnTreasure);
 
         var activeSenderUpdated = activeTarget != null && IsSameSender(activeTarget, target);
         foreach (var duplicate in destinations.Values
@@ -270,7 +375,8 @@ public sealed class MapFlagAutomation : IDisposable
         {
             SelectTarget(target, manualSelection);
         }
-        else if (!manualSelection)
+        else if (!manualSelection
+                 && (configuration.OperatingMode == OperatingMode.Follow || target.IsOwnTreasure))
         {
             SelectTarget(target, isManual: false);
         }
@@ -1193,7 +1299,10 @@ public sealed class MapFlagAutomation : IDisposable
         routeComparedTargetSerial = null;
         externalPlugins.SetNavigating(false);
         SetState(AutomationState.Idle, "已到达，等待挖宝、战斗或新的小队坐标");
-        DestinationReached?.Invoke();
+        if (completed != null)
+        {
+            DestinationReached?.Invoke(completed);
+        }
     }
 
     private void Fail(string reason)
