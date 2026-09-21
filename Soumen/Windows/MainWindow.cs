@@ -10,11 +10,9 @@ namespace Soumen.Windows;
 
 public sealed class MainWindow : Window
 {
-    private static readonly Vector4 Panel = new(0.075f, 0.085f, 0.105f, 0.96f);
     private static readonly Vector4 Success = new(0.34f, 0.84f, 0.56f, 1f);
     private static readonly Vector4 Warning = new(1f, 0.72f, 0.30f, 1f);
     private static readonly Vector4 Danger = new(0.95f, 0.36f, 0.36f, 1f);
-    private static readonly Vector4 Muted = new(0.62f, 0.66f, 0.72f, 1f);
 
     private readonly Configuration configuration;
     private readonly MapFlagAutomation automation;
@@ -26,12 +24,15 @@ public sealed class MainWindow : Window
     private int discardSource;
     private string presetNameDraft = string.Empty;
     private string? presetDraftId;
+    private bool presetRenameOpen;
     private string includePresetId = string.Empty;
     private bool confirmStatisticsReset;
 
     private ThemePalette Theme => GetTheme(configuration.UiTheme);
     private Vector4 Accent => Theme.Accent;
     private Vector4 AccentSoft => Theme.AccentSoft;
+    private Vector4 Panel => Theme.Panel;
+    private Vector4 Muted => Theme.Muted;
 
     public MainWindow(
         Configuration configuration,
@@ -58,45 +59,46 @@ public sealed class MainWindow : Window
 
     public override void Draw()
     {
+        PushThemeColors();
         DrawHeader();
         ImGui.Spacing();
 
-        if (!ImGui.BeginTabBar("##SoumenTabs"))
+        if (ImGui.BeginTabBar("##SoumenTabs"))
         {
-            return;
+            if (ImGui.BeginTabItem("运行"))
+            {
+                DrawOverview();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("设置"))
+            {
+                DrawSettings();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("自动丢弃"))
+            {
+                DrawAutoDiscard();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("统计"))
+            {
+                DrawStatistics();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("关于"))
+            {
+                DrawAbout();
+                ImGui.EndTabItem();
+            }
+
+            ImGui.EndTabBar();
         }
 
-        if (ImGui.BeginTabItem("运行"))
-        {
-            DrawOverview();
-            ImGui.EndTabItem();
-        }
-
-        if (ImGui.BeginTabItem("设置"))
-        {
-            DrawSettings();
-            ImGui.EndTabItem();
-        }
-
-        if (ImGui.BeginTabItem("自动丢弃"))
-        {
-            DrawAutoDiscard();
-            ImGui.EndTabItem();
-        }
-
-        if (ImGui.BeginTabItem("统计"))
-        {
-            DrawStatistics();
-            ImGui.EndTabItem();
-        }
-
-        if (ImGui.BeginTabItem("关于"))
-        {
-            DrawAbout();
-            ImGui.EndTabItem();
-        }
-
-        ImGui.EndTabBar();
+        ImGui.PopStyleColor(11);
     }
 
     private void DrawHeader()
@@ -165,7 +167,7 @@ public sealed class MainWindow : Window
         var selected = configuration.OperatingMode == mode;
         ImGui.PushStyleColor(ImGuiCol.Button, selected ? AccentSoft : Panel);
         ImGui.PushStyleColor(ImGuiCol.ButtonHovered,
-            selected ? Theme.ButtonHovered : new Vector4(0.12f, 0.14f, 0.18f, 1f));
+            selected ? Theme.ButtonHovered : Theme.PanelHovered);
         ImGui.PushStyleColor(ImGuiCol.Text, selected ? Accent : Muted);
         if (ImGui.Button($"{title}\n{subtitle}##{mode}", new Vector2(width, 54f * scale)))
         {
@@ -514,7 +516,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.2");
+        DrawSectionTitle("Soumen 0.4.2.1");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
@@ -635,6 +637,7 @@ public sealed class MainWindow : Window
                 {
                     configuration.ActiveAutoDiscardPresetId = preset.Id;
                     presetDraftId = null;
+                    presetRenameOpen = false;
                     includePresetId = string.Empty;
                     configuration.Save();
                 }
@@ -648,26 +651,19 @@ public sealed class MainWindow : Window
             ImGui.EndCombo();
         }
 
-        ImGui.SetNextItemWidth(-1f);
-        ImGui.InputTextWithHint("##SoumenPresetName", "预设名称", ref presetNameDraft, 48);
-
-        if (ImGui.Button("保存名称"))
+        if (ImGui.SmallButton("改名"))
         {
-            var name = presetNameDraft.Trim();
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                activePreset.Name = name;
-                presetNameDraft = name;
-                configuration.Save();
-            }
+            presetNameDraft = activePreset.Name;
+            presetRenameOpen = true;
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("新建预设"))
+        if (ImGui.SmallButton("新建"))
         {
             var preset = configuration.CreateDiscardPreset();
             presetDraftId = preset.Id;
             presetNameDraft = preset.Name;
+            presetRenameOpen = true;
             includePresetId = string.Empty;
             configuration.Save();
             activePreset = preset;
@@ -675,14 +671,41 @@ public sealed class MainWindow : Window
 
         ImGui.SameLine();
         ImGui.BeginDisabled(configuration.AutoDiscardPresets.Count <= 1);
-        if (ImGui.Button("删除预设") && configuration.DeleteDiscardPreset(activePreset.Id))
+        if (ImGui.SmallButton("删除") && configuration.DeleteDiscardPreset(activePreset.Id))
         {
             presetDraftId = null;
+            presetRenameOpen = false;
             includePresetId = string.Empty;
             configuration.Save();
             activePreset = configuration.ActiveDiscardPreset;
         }
         ImGui.EndDisabled();
+
+        if (presetRenameOpen)
+        {
+            ImGui.Spacing();
+            ImGui.SetNextItemWidth(Math.Max(120f * scale, ImGui.GetContentRegionAvail().X - 112f * scale));
+            ImGui.InputTextWithHint("##SoumenPresetName", "输入预设名称", ref presetNameDraft, 48);
+            ImGui.SameLine();
+            if (ImGui.SmallButton("确定"))
+            {
+                var name = presetNameDraft.Trim();
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    activePreset.Name = name;
+                    presetNameDraft = name;
+                    presetRenameOpen = false;
+                    configuration.Save();
+                }
+            }
+
+            ImGui.SameLine();
+            if (ImGui.SmallButton("取消"))
+            {
+                presetNameDraft = activePreset.Name;
+                presetRenameOpen = false;
+            }
+        }
 
         var availableIncludes = configuration.AutoDiscardPresets
             .Where(preset => preset.Id != activePreset.Id
@@ -897,10 +920,13 @@ public sealed class MainWindow : Window
         ImGui.SetCursorPos(new Vector2(14f, 13f) * scale);
         ImGui.TextColored(Muted, title);
         ImGui.SetCursorPosX(14f * scale);
+        var valueTop = ImGui.GetCursorPosY();
         ImGui.SetWindowFontScale(1.55f);
+        var valueHeight = ImGui.GetTextLineHeight();
         ImGui.TextColored(color, value);
         ImGui.SetWindowFontScale(1f);
-        ImGui.SameLine();
+        ImGui.SameLine(0f, 6f * scale);
+        ImGui.SetCursorPosY(valueTop + valueHeight - ImGui.GetTextLineHeight());
         ImGui.TextColored(Muted, unit);
         ImGui.EndChild();
         ImGui.PopStyleColor();
@@ -915,7 +941,7 @@ public sealed class MainWindow : Window
         ImGui.Separator();
     }
 
-    private static void DrawDependencyRow(string name, bool installed, string status)
+    private void DrawDependencyRow(string name, bool installed, string status)
     {
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
@@ -1001,47 +1027,62 @@ public sealed class MainWindow : Window
     private static string GetThemeName(UiTheme theme)
         => theme switch
         {
-            UiTheme.Ocean => "海蓝",
-            UiTheme.Violet => "紫藤",
-            UiTheme.Emerald => "翡翠",
-            UiTheme.Coral => "珊瑚",
-            UiTheme.Gold => "金沙",
-            _ => "海蓝",
+            UiTheme.Ocean => "默认蓝",
+            UiTheme.Dark => "深色",
+            UiTheme.Light => "浅色",
+            _ => "默认蓝",
         };
 
     private static ThemePalette GetTheme(UiTheme theme)
         => theme switch
         {
-            UiTheme.Violet => new(
-                new Vector4(0.72f, 0.57f, 0.96f, 1f),
-                new Vector4(0.22f, 0.16f, 0.32f, 0.96f),
-                new Vector4(0.39f, 0.27f, 0.67f, 1f),
-                new Vector4(0.51f, 0.36f, 0.82f, 1f)),
-            UiTheme.Emerald => new(
-                new Vector4(0.32f, 0.84f, 0.66f, 1f),
-                new Vector4(0.10f, 0.27f, 0.22f, 0.96f),
-                new Vector4(0.12f, 0.48f, 0.36f, 1f),
-                new Vector4(0.17f, 0.60f, 0.45f, 1f)),
-            UiTheme.Coral => new(
-                new Vector4(0.97f, 0.54f, 0.48f, 1f),
-                new Vector4(0.31f, 0.16f, 0.17f, 0.96f),
-                new Vector4(0.62f, 0.27f, 0.25f, 1f),
-                new Vector4(0.76f, 0.35f, 0.32f, 1f)),
-            UiTheme.Gold => new(
-                new Vector4(0.94f, 0.73f, 0.36f, 1f),
-                new Vector4(0.30f, 0.24f, 0.12f, 0.96f),
-                new Vector4(0.57f, 0.42f, 0.13f, 1f),
-                new Vector4(0.70f, 0.53f, 0.19f, 1f)),
+            UiTheme.Dark => new(
+                new Vector4(0.62f, 0.70f, 0.82f, 1f),
+                new Vector4(0.10f, 0.12f, 0.16f, 0.98f),
+                new Vector4(0.04f, 0.045f, 0.055f, 0.98f),
+                new Vector4(0.09f, 0.10f, 0.12f, 1f),
+                new Vector4(0.15f, 0.17f, 0.22f, 1f),
+                new Vector4(0.23f, 0.27f, 0.34f, 1f),
+                new Vector4(0.55f, 0.59f, 0.66f, 1f)),
+            UiTheme.Light => new(
+                new Vector4(0.47f, 0.72f, 0.93f, 1f),
+                new Vector4(0.19f, 0.28f, 0.36f, 0.96f),
+                new Vector4(0.20f, 0.23f, 0.27f, 0.96f),
+                new Vector4(0.27f, 0.31f, 0.36f, 1f),
+                new Vector4(0.28f, 0.50f, 0.68f, 1f),
+                new Vector4(0.36f, 0.61f, 0.80f, 1f),
+                new Vector4(0.78f, 0.82f, 0.88f, 1f)),
             _ => new(
                 new Vector4(0.31f, 0.67f, 0.94f, 1f),
                 new Vector4(0.10f, 0.20f, 0.29f, 0.96f),
+                new Vector4(0.075f, 0.085f, 0.105f, 0.96f),
+                new Vector4(0.12f, 0.14f, 0.18f, 1f),
                 new Vector4(0.11f, 0.40f, 0.66f, 1f),
-                new Vector4(0.16f, 0.50f, 0.79f, 1f)),
+                new Vector4(0.16f, 0.50f, 0.79f, 1f),
+                new Vector4(0.62f, 0.66f, 0.72f, 1f)),
         };
+
+    private void PushThemeColors()
+    {
+        ImGui.PushStyleColor(ImGuiCol.FrameBg, Panel);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Theme.PanelHovered);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgActive, AccentSoft);
+        ImGui.PushStyleColor(ImGuiCol.Button, Theme.Button);
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, Theme.ButtonHovered);
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, AccentSoft);
+        ImGui.PushStyleColor(ImGuiCol.CheckMark, Accent);
+        ImGui.PushStyleColor(ImGuiCol.SliderGrab, Accent);
+        ImGui.PushStyleColor(ImGuiCol.PopupBg, Panel);
+        ImGui.PushStyleColor(ImGuiCol.TableHeaderBg, AccentSoft);
+        ImGui.PushStyleColor(ImGuiCol.Separator, new Vector4(Accent.X, Accent.Y, Accent.Z, 0.42f));
+    }
 
     private readonly record struct ThemePalette(
         Vector4 Accent,
         Vector4 AccentSoft,
+        Vector4 Panel,
+        Vector4 PanelHovered,
         Vector4 Button,
-        Vector4 ButtonHovered);
+        Vector4 ButtonHovered,
+        Vector4 Muted);
 }

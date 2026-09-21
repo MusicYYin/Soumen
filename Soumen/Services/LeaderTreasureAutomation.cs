@@ -23,7 +23,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private const uint GargantuaskinDecodedEventItemId = 2003785;
     private const uint VaultOneironTerritoryId = 1279;
     private const uint HypnoslotNameRowId = 2014790;
-    private const uint LimsaLominsaAetheryteId = 8;
     private const ushort LimsaLominsaLowerDecksTerritoryId = 129;
     private const float ObjectApproachRange = 3.2f;
     private const float OutdoorObjectSearchRange = 55f;
@@ -65,6 +64,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private DateTime saddlebagOpenedUtc = DateTime.MinValue;
     private DateTime portalSearchStartedUtc = DateTime.MinValue;
     private DateTime restockArrivedUtc = DateTime.MinValue;
+    private DateTime restockTeleportSubmittedUtc = DateTime.MinValue;
     private DateTime marketTravelStartedUtc = DateTime.MinValue;
     private DateTime nextRestockRetryUtc = DateTime.MinValue;
     private readonly HashSet<uint> preDigChestIds = [];
@@ -376,6 +376,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
+        StopOwnedNavigation();
         restockStage = RestockStage.BuyFirst;
         marketPurchase.Reset();
         diagnostics.Write("自动补图", "未找到任何 G18，开始前往海都补充三张藏宝图。" );
@@ -402,22 +403,56 @@ public sealed class LeaderTreasureAutomation : IDisposable
         {
             restockArrivedUtc = DateTime.MinValue;
             marketTravelSubmitted = false;
+            if (restockTeleportSubmittedUtc != DateTime.MinValue)
+            {
+                if (now - restockTeleportSubmittedUtc > TimeSpan.FromSeconds(45))
+                {
+                    var currentTerritory = Plugin.ClientState.TerritoryType;
+                    CancelRestock();
+                    SetState(
+                        LeaderAutomationState.Error,
+                        $"传送后未到达海都下层甲板（当前地图 {currentTerritory}），请开启诊断模式后重试");
+                }
+                else
+                {
+                    StatusText = "已提交海都传送，等待读图完成";
+                }
+
+                return;
+            }
+
             if (now - lastActionUtc >= TimeSpan.FromSeconds(10)
                 && TeleportService.CanTeleportNow())
             {
                 lastActionUtc = now;
-                if (!teleportService.Teleport(LimsaLominsaAetheryteId))
+                var limsaAetheryte = teleportService
+                    .GetCandidates(LimsaLominsaLowerDecksTerritoryId)
+                    .FirstOrDefault();
+                if (limsaAetheryte == null)
                 {
                     CancelRestock();
-                    SetState(LeaderAutomationState.Error, "无法传送到海都下层甲板，请确认已解锁海都以太水晶");
+                    SetState(LeaderAutomationState.Error, "已解锁传送列表中没有海都下层甲板以太水晶");
                     return;
                 }
+
+                diagnostics.Write(
+                    "自动补图",
+                    $"动态选择海都水晶：{limsaAetheryte.Name}#{limsaAetheryte.Id}；当前地图={Plugin.ClientState.TerritoryType}，目标地图={LimsaLominsaLowerDecksTerritoryId}。" );
+                if (!teleportService.Teleport(limsaAetheryte.Id))
+                {
+                    CancelRestock();
+                    SetState(LeaderAutomationState.Error, $"无法传送到{limsaAetheryte.Name}，请确认传送状态");
+                    return;
+                }
+
+                restockTeleportSubmittedUtc = now;
             }
 
             StatusText = "正在传送到海都下层甲板";
             return;
         }
 
+        restockTeleportSubmittedUtc = DateTime.MinValue;
         if (restockArrivedUtc == DateTime.MinValue)
         {
             restockArrivedUtc = now;
@@ -605,6 +640,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
         marketTravelSubmitted = false;
         marketTravelStartedUtc = DateTime.MinValue;
         restockArrivedUtc = DateTime.MinValue;
+        restockTeleportSubmittedUtc = DateTime.MinValue;
         nextRestockRetryUtc = DateTime.MinValue;
         lastActionUtc = DateTime.MinValue;
         SetState(LeaderAutomationState.RestockingTravel, status);
@@ -634,6 +670,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
         restockStage = RestockStage.None;
         marketTravelSubmitted = false;
         restockArrivedUtc = DateTime.MinValue;
+        restockTeleportSubmittedUtc = DateTime.MinValue;
         marketTravelStartedUtc = DateTime.MinValue;
         nextRestockRetryUtc = DateTime.MinValue;
     }
