@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.3.5.0</Version>
-    <AssemblyVersion>0.3.5.0</AssemblyVersion>
-    <FileVersion>0.3.5.0</FileVersion>
+    <Version>0.4.0.0</Version>
+    <AssemblyVersion>0.4.0.0</AssemblyVersion>
+    <FileVersion>0.4.0.0</FileVersion>
     <Author>MusicYYin</Author>
     <Name>Soumen</Name>
     <InternalName>Soumen</InternalName>
     <RootNamespace>Soumen</RootNamespace>
-    <Punchline>小队藏宝图坐标导航。</Punchline>
-    <Description>读取小队坐标并使用 vnavmesh 自动导航。</Description>
+    <Punchline>藏宝图导航与自动流程。</Punchline>
+    <Description>读取队伍坐标，导航并完成藏宝图流程。</Description>
     <RepoUrl>https://github.com/MusicYYin/Soumen</RepoUrl>
     <IconUrl>https://raw.githubusercontent.com/MusicYYin/Soumen/main/icon.png</IconUrl>
     <Tags>treasure;map;navigation;automation;Chinese</Tags>
