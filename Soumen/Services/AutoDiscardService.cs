@@ -511,27 +511,39 @@ public sealed class AutoDiscardService : IDisposable
 
     private Dictionary<uint, DiscardCatalogItem> BuildCatalog()
     {
-        var englishNames = Plugin.DataManager
-            .GetExcelSheet<Item>(ClientLanguage.English)
-            .Where(item => item.RowId != 0 && !string.IsNullOrWhiteSpace(item.Name.ToString()))
-            .ToDictionary(item => item.RowId, item => item.Name.ToString());
+        var englishNames = new Dictionary<uint, string>();
+        try
+        {
+            englishNames = Plugin.DataManager
+                .GetExcelSheet<Item>(ClientLanguage.English)
+                .Where(item => item.RowId != 0 && !string.IsNullOrWhiteSpace(item.Name.ToString()))
+                .ToDictionary(item => item.RowId, item => item.Name.ToString());
+        }
+        catch (Exception exception)
+        {
+            // Some regional clients may not have the English sheet available. The
+            // localized catalog still supports search and explicit selections; only
+            // the English-name presets become unavailable for that session.
+            diagnostics.Write("自动丢弃", $"读取英文物品表失败，改用当前客户端语言：{exception.Message}");
+        }
 
         var result = new Dictionary<uint, DiscardCatalogItem>();
         foreach (var item in Plugin.DataManager.GetExcelSheet<Item>())
         {
             if (item.RowId == 0
                 || item.IsIndisposable
-                || string.IsNullOrWhiteSpace(item.Name.ToString())
-                || !englishNames.TryGetValue(item.RowId, out var englishName))
+                || string.IsNullOrWhiteSpace(item.Name.ToString()))
             {
                 continue;
             }
 
+            var localizedName = item.Name.ToString();
+            var englishName = englishNames.GetValueOrDefault(item.RowId, localizedName);
             var isMateria = englishName.Contains("Materia", StringComparison.Ordinal)
                 && !PriorityMateriaPrefixes.Any(prefix => englishName.StartsWith(prefix, StringComparison.Ordinal));
             result[item.RowId] = new(
                 item.RowId,
-                item.Name.ToString(),
+                localizedName,
                 englishName,
                 item.Icon,
                 G18EnglishNames.Contains(englishName),
