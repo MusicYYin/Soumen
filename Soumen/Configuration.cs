@@ -19,7 +19,7 @@ public sealed class Configuration : IPluginConfiguration
     [JsonIgnore]
     private IDalamudPluginInterface? pluginInterface;
 
-    public int Version { get; set; } = 10;
+    public int Version { get; set; } = 11;
 
     public OperatingMode OperatingMode { get; set; } = OperatingMode.Follow;
 
@@ -116,8 +116,12 @@ public sealed class Configuration : IPluginConfiguration
         configuration.AutoDiscardItemIds ??= [];
         configuration.AutoDiscardPresets ??= [];
         configuration.NormalizeDiscardPresets();
+        if (!Enum.IsDefined(typeof(UiTheme), configuration.UiTheme))
+        {
+            configuration.UiTheme = UiTheme.Ocean;
+        }
         configuration.LeaderMapMaximumUnitPrice = Math.Clamp(configuration.LeaderMapMaximumUnitPrice, 1_000u, 9_999_999u);
-        configuration.Version = 10;
+        configuration.Version = 11;
         configuration.Save();
         return configuration;
     }
