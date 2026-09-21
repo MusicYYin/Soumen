@@ -20,15 +20,6 @@ public sealed class AutoDiscardService : IDisposable
         InventoryType.Inventory4,
     ];
 
-    private static readonly InventoryType[] TrackedInventories =
-    [
-        .. MainInventories,
-        InventoryType.SaddleBag1,
-        InventoryType.SaddleBag2,
-        InventoryType.PremiumSaddleBag1,
-        InventoryType.PremiumSaddleBag2,
-    ];
-
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan LootQuietPeriod = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(6);
@@ -580,7 +571,7 @@ public sealed class AutoDiscardService : IDisposable
             return result;
         }
 
-        foreach (var type in TrackedInventories)
+        foreach (var type in MainInventories)
         {
             var container = manager->GetInventoryContainer(type);
             if (container == null || !container->IsLoaded)
