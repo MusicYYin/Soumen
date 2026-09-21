@@ -171,8 +171,11 @@ public sealed class AutoDiscardService : IDisposable
     public int PendingQuantity(uint itemId)
         => earnedCounts.Where(pair => pair.Key.ItemId == itemId).Sum(pair => pair.Value);
 
-    private void OnDestinationReached()
-        => StartOrExtendSession("已到达藏宝图坐标，开始记录本轮新增物品");
+    private void OnDestinationReached(MapFlagTarget target)
+    {
+        _ = target;
+        StartOrExtendSession("已到达藏宝图坐标，开始记录本轮新增物品");
+    }
 
     private void OnFrameworkUpdate(IFramework framework)
     {
