@@ -68,7 +68,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private nint navigationObjectAddress;
     private bool ownsNavigation;
     private bool decipherMenuSelectionIssued;
-    private bool sawTreasureCombat;
     private bool disposed;
 
     public LeaderTreasureAutomation(
@@ -178,7 +177,15 @@ public sealed class LeaderTreasureAutomation : IDisposable
                 SetState(LeaderAutomationState.Dungeon, "已进入宝物库");
             }
 
-            ProcessDungeon(now);
+            if (Plugin.ClientState.TerritoryType == VaultOneironTerritoryId)
+            {
+                ProcessDungeon(now);
+            }
+            else
+            {
+                StopOwnedNavigation();
+                StatusText = "当前宝物库尚未加入车头自动流程";
+            }
             return;
         }
 
@@ -374,7 +381,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private void ProcessDecipherConfirmation(DateTime now)
     {
-        if (DecodedMapCount > 0 || InventoryMapCount == 0)
+        if (DecodedMapCount > 0)
         {
             SetState(LeaderAutomationState.LookingForMap, "藏宝图已解读");
             return;
@@ -397,13 +404,13 @@ public sealed class LeaderTreasureAutomation : IDisposable
         lastActionUtc = now;
         var actionManager = ActionManager.Instance();
         if (actionManager == null
-            || actionManager->GetActionStatus(ActionType.KeyItem, GargantuaskinDecodedEventItemId) != 0)
+            || actionManager->GetActionStatus(ActionType.EventItem, GargantuaskinDecodedEventItemId) != 0)
         {
             StatusText = "等待已解读藏宝图可使用";
             return;
         }
 
-        actionManager->UseAction(ActionType.KeyItem, GargantuaskinDecodedEventItemId);
+        actionManager->UseAction(ActionType.EventItem, GargantuaskinDecodedEventItemId);
         SetState(LeaderAutomationState.WaitingForFlag, "已打开藏宝图，等待坐标插件创建旗标");
         diagnostics.Write("车头", $"已使用已解读藏宝图 #{GargantuaskinDecodedEventItemId}，等待新旗标。" );
     }
@@ -515,7 +522,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        sawTreasureCombat = false;
         SetState(LeaderAutomationState.WaitingForCombat, "已打开宝箱，等待敌人出现");
     }
 
@@ -523,7 +529,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
     {
         if (Plugin.Condition[ConditionFlag.InCombat] || HasTreasureEnemies())
         {
-            sawTreasureCombat = true;
             StopOwnedNavigation();
             SetState(LeaderAutomationState.Combat, "寻宝战斗中，由 AE Assist 与 BossMod Reborn 处理");
             return;
@@ -1082,7 +1087,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
         trackedChestEntityId = 0;
         trackedChestPosition = Vector3.Zero;
         preDigChestIds.Clear();
-        sawTreasureCombat = false;
         noTreasureEnemySinceUtc = DateTime.MinValue;
         portalSearchStartedUtc = DateTime.MinValue;
         pendingYesUntilUtc = DateTime.MinValue;
