@@ -46,7 +46,7 @@ public sealed class Plugin : IDalamudPlugin
         diagnostics = new DiagnosticLogger(configuration);
         diagnostics.Write("运行", "Soumen 已加载。");
         automation = new MapFlagAutomation(configuration, diagnostics);
-        partyTeleportService = new PartyTeleportService(configuration, automation.PrepareForPartyTeleport);
+        partyTeleportService = new PartyTeleportService(configuration, automation.PrepareForPartyTeleport, diagnostics);
         treasureDungeonAutomation = new TreasureDungeonAutomation(configuration);
         treasureSackAutomation = new TreasureSackAutomation(configuration, automation, diagnostics);
         leaderTreasureAutomation = new LeaderTreasureAutomation(configuration, automation, diagnostics);

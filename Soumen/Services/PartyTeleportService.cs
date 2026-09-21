@@ -13,12 +13,17 @@ public sealed unsafe class PartyTeleportService : IDisposable
 
     private readonly Configuration configuration;
     private readonly System.Action onTeleportAccepted;
+    private readonly DiagnosticLogger diagnostics;
     private readonly string[] promptFragments;
 
-    public PartyTeleportService(Configuration configuration, System.Action onTeleportAccepted)
+    public PartyTeleportService(
+        Configuration configuration,
+        System.Action onTeleportAccepted,
+        DiagnosticLogger diagnostics)
     {
         this.configuration = configuration;
         this.onTeleportAccepted = onTeleportAccepted;
+        this.diagnostics = diagnostics;
         promptFragments = LoadPromptFragments();
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnSelectYesnoPostSetup);
     }
@@ -30,7 +35,7 @@ public sealed unsafe class PartyTeleportService : IDisposable
     {
         _ = type;
         if (!configuration.Enabled
-            || !configuration.AcceptPartyTeleportRequests
+            || (!configuration.AcceptPartyTeleportRequests && !configuration.AutoTeleport)
             || promptFragments.Length == 0)
         {
             return;
@@ -46,9 +51,19 @@ public sealed unsafe class PartyTeleportService : IDisposable
             return;
         }
 
-        Plugin.Log.Information("Accepting party teleport request: {Prompt}", prompt);
-        onTeleportAccepted();
-        addon->AtkUnitBase.FireCallbackInt(0);
+        if (configuration.AcceptPartyTeleportRequests)
+        {
+            Plugin.Log.Information("Accepting party teleport request: {Prompt}", prompt);
+            diagnostics.Write("队友传送", "已接受队友传送邀请。" );
+            onTeleportAccepted();
+            addon->AtkUnitBase.FireCallbackInt(0);
+        }
+        else
+        {
+            Plugin.Log.Information("Rejecting party teleport request while self teleport is enabled: {Prompt}", prompt);
+            diagnostics.Write("队友传送", "当前使用自行传送，已拒绝队友传送邀请。" );
+            addon->AtkUnitBase.FireCallbackInt(1);
+        }
     }
 
     private static string[] LoadPromptFragments()
