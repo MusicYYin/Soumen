@@ -84,6 +84,7 @@ public sealed class AutoDiscardService : IDisposable
     private readonly Dictionary<ItemKey, int> lastCounts = [];
     private readonly Dictionary<ItemKey, int> earnedCounts = [];
     private readonly HashSet<uint> observedItemIds = [];
+    private readonly HashSet<SlotAddress> sessionEmptySlots = [];
 
     private DateTime nextPollUtc = DateTime.MinValue;
     private DateTime lastInventoryIncreaseUtc = DateTime.MinValue;
@@ -243,9 +244,11 @@ public sealed class AutoDiscardService : IDisposable
 
         earnedCounts.Clear();
         observedItemIds.Clear();
+        sessionEmptySlots.Clear();
+        sessionEmptySlots.UnionWith(ReadEmptyMainSlots());
         pendingOperation = null;
         StatusText = status;
-        diagnostics.Write("自动丢弃", "已建立背包基线，只会处理此后增加的数量。");
+        diagnostics.Write("自动丢弃", "已建立背包基线，只会处理此后出现在原空格中的精确新增整堆。");
     }
 
     private void EndSession()
@@ -260,6 +263,7 @@ public sealed class AutoDiscardService : IDisposable
         pendingOperation = null;
         lastCounts.Clear();
         earnedCounts.Clear();
+        sessionEmptySlots.Clear();
         StatusText = "等待开始挖宝";
         diagnostics.Write("自动丢弃", "本轮物品记录已结束。");
     }
@@ -305,58 +309,31 @@ public sealed class AutoDiscardService : IDisposable
 
     private unsafe void TryStartNextDiscard(DateTime now)
     {
+        string? skippedStatus = null;
         foreach (var pair in earnedCounts
                      .Where(pair => pair.Value > 0 && configuration.AutoDiscardItemIds.Contains(pair.Key.ItemId))
                      .OrderBy(pair => pair.Key.ItemId)
                      .ToList())
         {
-            var slots = ReadMainInventorySlots(pair.Key).OrderBy(slot => slot.Quantity).ToList();
-            if (slots.Count == 0)
+            var earned = pair.Value;
+            var exactNewStack = ReadMainInventorySlots(pair.Key)
+                .FirstOrDefault(slot => sessionEmptySlots.Contains(new(slot.Inventory, slot.Slot))
+                    && slot.Quantity == earned);
+            if (exactNewStack != null)
             {
-                continue;
-            }
-
-            var earned = Math.Min(pair.Value, slots.Sum(slot => slot.Quantity));
-            var wholeStack = slots.FirstOrDefault(slot => slot.Quantity <= earned);
-            if (wholeStack != null)
-            {
-                BeginDiscard(wholeStack, wholeStack.Quantity, now);
+                BeginDiscard(exactNewStack, earned, now);
                 return;
             }
 
-            var source = slots[0];
-            var emptySlots = ReadEmptyMainSlots();
-            if (emptySlots.Count == 0)
-            {
-                StatusText = $"{GetItemName(pair.Key.ItemId)} 已并入旧堆，但背包没有空格可拆分";
-                diagnostics.WriteThrottled(
-                    $"discard-no-empty-{pair.Key.ItemId}",
-                    "自动丢弃",
-                    $"{GetItemName(pair.Key.ItemId)} 需要先拆分 {earned} 个，但背包没有空格；为保护旧物品已跳过。",
-                    TimeSpan.FromSeconds(30));
-                continue;
-            }
-
-            var manager = InventoryManager.Instance();
-            if (manager == null)
-            {
-                return;
-            }
-
-            var result = manager->SplitItem(source.Inventory, source.Slot, earned);
-            pendingOperation = PendingOperation.WaitingForSplit(
-                pair.Key,
-                earned,
-                emptySlots,
-                now + OperationTimeout);
-            StatusText = $"正在拆分本轮新增的 {GetItemName(pair.Key.ItemId)} ×{earned}";
-            diagnostics.Write(
+            skippedStatus = $"{GetItemName(pair.Key.ItemId)} 已合并或数量不一致，跳过";
+            diagnostics.WriteThrottled(
+                $"discard-not-exact-{pair.Key.ItemId}-{pair.Key.IsHq}",
                 "自动丢弃",
-                $"拆分 {GetItemName(pair.Key.ItemId)} ×{earned}，source={source.Inventory}/{source.Slot}，result={result}。");
-            return;
+                $"{GetItemName(pair.Key.ItemId)} 本轮新增 {earned} 个，但没有位于基线空格且数量完全一致的整堆；已跳过。",
+                TimeSpan.FromSeconds(30));
         }
 
-        StatusText = "正在记录本轮新增物品";
+        StatusText = skippedStatus ?? "正在记录本轮新增物品";
     }
 
     private void ProcessPendingOperation(DateTime now)
@@ -377,20 +354,6 @@ public sealed class AutoDiscardService : IDisposable
 
         switch (pendingOperation.Kind)
         {
-            case PendingOperationKind.WaitingForSplit:
-            {
-                var splitSlot = pendingOperation.EmptySlots
-                    .Select(ReadSlot)
-                    .FirstOrDefault(slot => slot != null
-                        && slot.Key == pendingOperation.Key
-                        && slot.Quantity == pendingOperation.Quantity);
-                if (splitSlot != null)
-                {
-                    BeginDiscard(splitSlot, pendingOperation.Quantity, now);
-                }
-
-                break;
-            }
             case PendingOperationKind.WaitingForConfirmation:
                 ProcessDiscardConfirmation(now);
                 break;
@@ -417,7 +380,8 @@ public sealed class AutoDiscardService : IDisposable
     {
         if (quantity <= 0
             || slot.Quantity != quantity
-            || earnedCounts.GetValueOrDefault(slot.Key) < quantity)
+            || earnedCounts.GetValueOrDefault(slot.Key) != quantity
+            || !sessionEmptySlots.Contains(new(slot.Inventory, slot.Slot)))
         {
             diagnostics.Write("自动丢弃", "丢弃前数量复核失败，已取消本次操作。");
             pendingOperation = null;
@@ -697,7 +661,6 @@ public sealed class AutoDiscardService : IDisposable
 
     private enum PendingOperationKind
     {
-        WaitingForSplit,
         WaitingForConfirmation,
         WaitingForRemoval,
     }
@@ -706,22 +669,14 @@ public sealed class AutoDiscardService : IDisposable
         PendingOperationKind Kind,
         ItemKey Key,
         int Quantity,
-        HashSet<SlotAddress> EmptySlots,
         SlotAddress TargetSlot,
         DateTime TimeoutUtc)
     {
-        public static PendingOperation WaitingForSplit(
-            ItemKey key,
-            int quantity,
-            HashSet<SlotAddress> emptySlots,
-            DateTime timeoutUtc)
-            => new(PendingOperationKind.WaitingForSplit, key, quantity, emptySlots, default, timeoutUtc);
-
         public static PendingOperation WaitingForConfirmation(
             ItemKey key,
             int quantity,
             SlotAddress targetSlot,
             DateTime timeoutUtc)
-            => new(PendingOperationKind.WaitingForConfirmation, key, quantity, [], targetSlot, timeoutUtc);
+            => new(PendingOperationKind.WaitingForConfirmation, key, quantity, targetSlot, timeoutUtc);
     }
 }
