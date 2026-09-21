@@ -24,6 +24,7 @@ public sealed class AutoDiscardService : IDisposable
     private static readonly TimeSpan LootQuietPeriod = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan OutdoorSessionDuration = TimeSpan.FromHours(2);
+    private const int RecentItemLimit = 20;
 
     private static readonly HashSet<string> G18EnglishNames = new(StringComparer.Ordinal)
     {
@@ -83,7 +84,7 @@ public sealed class AutoDiscardService : IDisposable
     private readonly Dictionary<uint, DiscardCatalogItem> catalogById;
     private readonly Dictionary<ItemKey, int> lastCounts = [];
     private readonly Dictionary<ItemKey, int> earnedCounts = [];
-    private readonly HashSet<uint> observedItemIds = [];
+    private readonly LinkedList<uint> observedItemIds = [];
     private readonly HashSet<SlotAddress> sessionEmptySlots = [];
 
     private DateTime nextPollUtc = DateTime.MinValue;
@@ -110,7 +111,7 @@ public sealed class AutoDiscardService : IDisposable
 
     public string StatusText { get; private set; } = "等待开始挖宝";
 
-    public IReadOnlyCollection<uint> ObservedItemIds => observedItemIds;
+    public IReadOnlyCollection<uint> ObservedItemIds => observedItemIds.ToArray();
 
     public IReadOnlyList<DiscardCatalogItem> G18Items
         => catalogById.Values.Where(item => item.IsG18Loot).OrderBy(item => item.Name).ToList();
@@ -127,7 +128,7 @@ public sealed class AutoDiscardService : IDisposable
             .ToList();
 
     public IReadOnlyList<DiscardCatalogItem> SelectedItems
-        => configuration.AutoDiscardItemIds
+        => configuration.ResolveActiveDiscardItemIds()
             .Select(GetCatalogItem)
             .Where(item => item != null)
             .Cast<DiscardCatalogItem>()
@@ -139,7 +140,6 @@ public sealed class AutoDiscardService : IDisposable
             .Select(GetCatalogItem)
             .Where(item => item != null)
             .Cast<DiscardCatalogItem>()
-            .OrderBy(item => item.Name)
             .ToList();
 
     public void Dispose()
@@ -246,7 +246,6 @@ public sealed class AutoDiscardService : IDisposable
         }
 
         earnedCounts.Clear();
-        observedItemIds.Clear();
         sessionEmptySlots.Clear();
         sessionEmptySlots.UnionWith(ReadEmptyMainSlots());
         pendingOperation = null;
@@ -283,7 +282,7 @@ public sealed class AutoDiscardService : IDisposable
             if (delta > 0)
             {
                 earnedCounts[key] = Math.Min(newCount, earnedCounts.GetValueOrDefault(key) + delta);
-                observedItemIds.Add(key.ItemId);
+                RecordRecentItem(key.ItemId);
                 lastInventoryIncreaseUtc = now;
                 diagnostics.Write(
                     "物品记录",
@@ -313,8 +312,9 @@ public sealed class AutoDiscardService : IDisposable
     private unsafe void TryStartNextDiscard(DateTime now)
     {
         string? skippedStatus = null;
+        var selectedItemIds = configuration.ResolveActiveDiscardItemIds();
         foreach (var pair in earnedCounts
-                     .Where(pair => pair.Value > 0 && configuration.AutoDiscardItemIds.Contains(pair.Key.ItemId))
+                     .Where(pair => pair.Value > 0 && selectedItemIds.Contains(pair.Key.ItemId))
                      .OrderBy(pair => pair.Key.ItemId)
                      .ToList())
         {
@@ -337,6 +337,21 @@ public sealed class AutoDiscardService : IDisposable
         }
 
         StatusText = skippedStatus ?? "正在记录本轮新增物品";
+    }
+
+    private void RecordRecentItem(uint itemId)
+    {
+        var existing = observedItemIds.Find(itemId);
+        if (existing != null)
+        {
+            observedItemIds.Remove(existing);
+        }
+
+        observedItemIds.AddFirst(itemId);
+        while (observedItemIds.Count > RecentItemLimit)
+        {
+            observedItemIds.RemoveLast();
+        }
     }
 
     private void ProcessPendingOperation(DateTime now)

@@ -36,6 +36,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly TreasureSackAutomation treasureSackAutomation;
     private readonly LeaderTreasureAutomation leaderTreasureAutomation;
     private readonly AutoDiscardService autoDiscardService;
+    private readonly StatisticsService statisticsService;
     private readonly MainWindow mainWindow;
 
     public Plugin()
@@ -49,7 +50,8 @@ public sealed class Plugin : IDalamudPlugin
         treasureSackAutomation = new TreasureSackAutomation(configuration, automation, diagnostics);
         leaderTreasureAutomation = new LeaderTreasureAutomation(configuration, automation, diagnostics);
         autoDiscardService = new AutoDiscardService(configuration, automation, diagnostics);
-        mainWindow = new MainWindow(configuration, automation, leaderTreasureAutomation, autoDiscardService, diagnostics);
+        statisticsService = new StatisticsService(configuration);
+        mainWindow = new MainWindow(configuration, automation, leaderTreasureAutomation, autoDiscardService, statisticsService, diagnostics);
         windowSystem.AddWindow(mainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -70,6 +72,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi -= OpenMainUi;
         CommandManager.RemoveHandler(CommandName);
         windowSystem.RemoveAllWindows();
+        statisticsService.Dispose();
         autoDiscardService.Dispose();
         leaderTreasureAutomation.Dispose();
         treasureSackAutomation.Dispose();
