@@ -369,7 +369,7 @@ public sealed class MainWindow : Window
 
         ImGui.TextColored(
             Muted,
-            "到达藏宝图坐标或进入宝物库时开始记账；合并进旧堆的物品会先按新增数量拆分。没有空格时不会处理。" );
+            "到达藏宝图坐标或进入宝物库时开始记账；只丢弃数量与新增记录完全一致的独立整堆。合并或数量不一致时跳过。" );
         ImGui.Spacing();
 
         var sessionColor = autoDiscardService.SessionActive ? Success : Muted;
