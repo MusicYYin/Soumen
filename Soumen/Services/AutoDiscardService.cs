@@ -79,6 +79,13 @@ public sealed class AutoDiscardService : IDisposable
         "Heavens' Eye Materia",
     ];
 
+    private static readonly uint[] CommonMaterialItemIds =
+    [
+        44009, // Riverbank Stone
+        44012, // Black Star
+        44020, // Kapok Lumber
+    ];
+
     private readonly Configuration configuration;
     private readonly MapFlagAutomation mapAutomation;
     private readonly DiagnosticLogger diagnostics;
@@ -118,6 +125,14 @@ public sealed class AutoDiscardService : IDisposable
 
     public IReadOnlyList<DiscardCatalogItem> NonPriorityMateria
         => catalogById.Values.Where(item => item.IsNonPriorityMateria).OrderBy(item => item.Name).ToList();
+
+    public IReadOnlyList<DiscardCatalogItem> CommonMaterials
+        => CommonMaterialItemIds
+            .Select(GetCatalogItem)
+            .Where(item => item != null)
+            .Cast<DiscardCatalogItem>()
+            .OrderBy(item => item.Name)
+            .ToList();
 
     public IReadOnlyList<DiscardCatalogItem> SelectedItems
         => configuration.AutoDiscardItemIds
