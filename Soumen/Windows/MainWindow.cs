@@ -266,76 +266,83 @@ public sealed class MainWindow : Window
     private void DrawSettings()
     {
         ImGui.Spacing();
-        DrawSectionTitle("移动行为");
-        DrawCheckbox("自动上坐骑", nameof(configuration.AutoMount), configuration.AutoMount, value => configuration.AutoMount = value);
-        DrawCheckbox("优先飞行导航", nameof(configuration.UseFlight), configuration.UseFlight, value => configuration.UseFlight = value);
-        DrawCheckbox("到达后自动落地并下坐骑", nameof(configuration.AutoDismount), configuration.AutoDismount, value => configuration.AutoDismount = value);
-
-        ImGui.Spacing();
-        DrawSectionTitle("传送方式（二选一）");
-        if (ImGui.RadioButton("自行传送至更近的以太水晶", configuration.AutoTeleport))
+        if (ImGui.CollapsingHeader("移动与路线", ImGuiTreeNodeFlags.DefaultOpen))
         {
-            configuration.AutoTeleport = true;
-            configuration.AcceptPartyTeleportRequests = false;
-            configuration.Save();
-        }
+            DrawCheckbox("自动上坐骑", nameof(configuration.AutoMount), configuration.AutoMount, value => configuration.AutoMount = value);
+            DrawCheckbox("优先飞行导航", nameof(configuration.UseFlight), configuration.UseFlight, value => configuration.UseFlight = value);
+            DrawCheckbox("到达后自动落地并下坐骑", nameof(configuration.AutoDismount), configuration.AutoDismount, value => configuration.AutoDismount = value);
+            DrawCheckbox("重新寻路后仍卡住时传送", nameof(configuration.TeleportWhenStuck), configuration.TeleportWhenStuck, value => configuration.TeleportWhenStuck = value);
 
-        if (ImGui.RadioButton("接受队友传送邀请", configuration.AcceptPartyTeleportRequests))
-        {
-            configuration.AutoTeleport = false;
-            configuration.AcceptPartyTeleportRequests = true;
-            configuration.Save();
-        }
-
-        ImGui.Spacing();
-        DrawSectionTitle("路线与恢复");
-        DrawCheckbox("重新寻路后仍卡住时传送", nameof(configuration.TeleportWhenStuck), configuration.TeleportWhenStuck, value => configuration.TeleportWhenStuck = value);
-
-        var stuckSeconds = configuration.StuckSeconds;
-        ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderFloat("卡住判定时间（秒）", ref stuckSeconds, 4f, 20f, "%.1f"))
-        {
-            configuration.StuckSeconds = stuckSeconds;
-            configuration.Save();
-        }
-
-        var tolerance = configuration.ArrivalTolerance;
-        ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderFloat("到达判定（世界距离）", ref tolerance, 3f, 30f, "%.1f"))
-        {
-            configuration.ArrivalTolerance = tolerance;
-            configuration.Save();
-        }
-
-        ImGui.Spacing();
-        DrawSectionTitle("外部插件");
-        DrawCheckbox("管理 AE Assist 自动选目标", nameof(configuration.EnableAeAssistIntegration), configuration.EnableAeAssistIntegration,
-            value => configuration.EnableAeAssistIntegration = value);
-        DrawCheckbox("运行期间启用 BossMod Reborn AI", nameof(configuration.EnableBossModRebornIntegration), configuration.EnableBossModRebornIntegration,
-            value => configuration.EnableBossModRebornIntegration = value);
-
-        ImGui.Spacing();
-        DrawSectionTitle("宝物库");
-        DrawCheckbox("宝物库结束且无待掷点物品时自动离开", nameof(configuration.AutoLeaveTreasureDungeon), configuration.AutoLeaveTreasureDungeon,
-            value => configuration.AutoLeaveTreasureDungeon = value);
-        DrawCheckbox("自动收集金袋和银袋", nameof(configuration.AutoCollectTreasureSacks), configuration.AutoCollectTreasureSacks,
-            value => configuration.AutoCollectTreasureSacks = value);
-
-        ImGui.Spacing();
-        DrawSectionTitle("开发者模式");
-        DrawCheckbox("识别所有聊天坐标", nameof(configuration.RecognizeAllChatCoordinates), configuration.RecognizeAllChatCoordinates,
-            value => configuration.RecognizeAllChatCoordinates = value);
-        DrawCheckbox("诊断模式", nameof(configuration.DiagnosticMode), configuration.DiagnosticMode,
-            value =>
+            var stuckSeconds = configuration.StuckSeconds;
+            ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
+            if (ImGui.SliderFloat("卡住判定时间（秒）", ref stuckSeconds, 4f, 20f, "%.1f"))
             {
-                configuration.DiagnosticMode = value;
-                if (value)
+                configuration.StuckSeconds = stuckSeconds;
+                configuration.Save();
+            }
+
+            var tolerance = configuration.ArrivalTolerance;
+            ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
+            if (ImGui.SliderFloat("到达判定（世界距离）", ref tolerance, 3f, 30f, "%.1f"))
+            {
+                configuration.ArrivalTolerance = tolerance;
+                configuration.Save();
+            }
+        }
+
+        ImGui.Spacing();
+        if (ImGui.CollapsingHeader("传送方式（二选一）", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            if (ImGui.RadioButton("自行传送至更近的以太水晶", configuration.AutoTeleport))
+            {
+                configuration.AutoTeleport = true;
+                configuration.AcceptPartyTeleportRequests = false;
+                configuration.Save();
+            }
+
+            if (ImGui.RadioButton("接受队友传送邀请", configuration.AcceptPartyTeleportRequests))
+            {
+                configuration.AutoTeleport = false;
+                configuration.AcceptPartyTeleportRequests = true;
+                configuration.Save();
+            }
+        }
+
+        ImGui.Spacing();
+        if (ImGui.CollapsingHeader("外部插件", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            DrawCheckbox("管理 AE Assist 自动选目标", nameof(configuration.EnableAeAssistIntegration), configuration.EnableAeAssistIntegration,
+                value => configuration.EnableAeAssistIntegration = value);
+            DrawCheckbox("运行期间启用 BossMod Reborn AI", nameof(configuration.EnableBossModRebornIntegration), configuration.EnableBossModRebornIntegration,
+                value => configuration.EnableBossModRebornIntegration = value);
+        }
+
+        ImGui.Spacing();
+        if (ImGui.CollapsingHeader("宝物库", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            DrawCheckbox("宝物库结束且无待掷点物品时自动离开", nameof(configuration.AutoLeaveTreasureDungeon), configuration.AutoLeaveTreasureDungeon,
+                value => configuration.AutoLeaveTreasureDungeon = value);
+            DrawCheckbox("自动收集金袋和银袋", nameof(configuration.AutoCollectTreasureSacks), configuration.AutoCollectTreasureSacks,
+                value => configuration.AutoCollectTreasureSacks = value);
+        }
+
+        ImGui.Spacing();
+        if (ImGui.CollapsingHeader("开发者模式"))
+        {
+            DrawCheckbox("识别所有聊天坐标", nameof(configuration.RecognizeAllChatCoordinates), configuration.RecognizeAllChatCoordinates,
+                value => configuration.RecognizeAllChatCoordinates = value);
+            DrawCheckbox("诊断模式", nameof(configuration.DiagnosticMode), configuration.DiagnosticMode,
+                value =>
                 {
-                    diagnostics.Write("诊断", "诊断模式已开启，后续内容将追加写入此文件。");
-                }
-            });
-        ImGui.TextColored(Muted, $"日志目录：{diagnostics.DirectoryPath}");
-        ImGui.TextColored(Muted, "文件名：diagnostic.log（关闭诊断模式时不会写入）");
+                    configuration.DiagnosticMode = value;
+                    if (value)
+                    {
+                        diagnostics.Write("诊断", "诊断模式已开启，后续内容将追加写入此文件。");
+                    }
+                });
+            ImGui.TextColored(Muted, $"日志目录：{diagnostics.DirectoryPath}");
+            ImGui.TextColored(Muted, "文件名：diagnostic.log（关闭诊断模式时不会写入）");
+        }
     }
 
     private static void DrawAbout()
