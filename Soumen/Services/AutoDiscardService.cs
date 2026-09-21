@@ -1,7 +1,7 @@
 using Dalamud.Game;
 using Dalamud.Game.ClientState.Conditions;
-using Dalamud.Memory;
 using Dalamud.Plugin.Services;
+using Dalamud.Utility;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
@@ -421,8 +421,14 @@ public sealed class AutoDiscardService : IDisposable
 
         var manager = InventoryManager.Instance();
         var context = AgentInventoryContext.Instance();
-        var item = manager?.GetInventorySlot(slot.Inventory, slot.Slot);
-        if (item == null || context == null)
+        if (manager == null || context == null)
+        {
+            pendingOperation = null;
+            return;
+        }
+
+        var item = manager->GetInventorySlot(slot.Inventory, slot.Slot);
+        if (item == null)
         {
             pendingOperation = null;
             return;
@@ -467,7 +473,7 @@ public sealed class AutoDiscardService : IDisposable
                 continue;
             }
 
-            var prompt = MemoryHelper.ReadSeString(&addon->PromptText->NodeText).TextValue;
+            var prompt = addon->PromptText->NodeText.ExtractText();
             var expectedName = GetItemName(pendingOperation.Key.ItemId);
             if (!string.IsNullOrWhiteSpace(expectedName)
                 && !prompt.Contains(expectedName, StringComparison.OrdinalIgnoreCase))
@@ -644,7 +650,12 @@ public sealed class AutoDiscardService : IDisposable
     private static unsafe InventorySlot? ReadSlot(SlotAddress address)
     {
         var manager = InventoryManager.Instance();
-        var item = manager?.GetInventorySlot(address.Inventory, address.Slot);
+        if (manager == null)
+        {
+            return null;
+        }
+
+        var item = manager->GetInventorySlot(address.Inventory, address.Slot);
         if (item == null || item->ItemId == 0 || item->Quantity <= 0)
         {
             return null;

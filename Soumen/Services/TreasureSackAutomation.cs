@@ -72,7 +72,7 @@ public sealed class TreasureSackAutomation : IDisposable
         }
 
         var sacks = Plugin.ObjectTable
-            .Where(obj => obj.Address != 0 && obj.DataId is GoldSackDataId or SilverSackDataId)
+            .Where(obj => obj.Address != 0 && obj.BaseId is GoldSackDataId or SilverSackDataId)
             .ToList();
         if (sacks.Count == 0)
         {
@@ -83,7 +83,7 @@ public sealed class TreasureSackAutomation : IDisposable
 
         var sack = sacks
             .OrderBy(obj => HorizontalDistanceSquared(player.Position, obj.Position)
-                * (obj.DataId == GoldSackDataId ? 1f : 3f))
+                * (obj.BaseId == GoldSackDataId ? 1f : 3f))
             .First();
 
         if (activeSackAddress != sack.Address)
@@ -92,7 +92,7 @@ public sealed class TreasureSackAutomation : IDisposable
             activeSackAddress = sack.Address;
             diagnostics.Write(
                 "袋子",
-                $"发现{(sack.DataId == GoldSackDataId ? "金" : "银")}袋，前往 ({sack.Position.X:F1},{sack.Position.Y:F1},{sack.Position.Z:F1})。");
+                $"发现{(sack.BaseId == GoldSackDataId ? "金" : "银")}袋，前往 ({sack.Position.X:F1},{sack.Position.Y:F1},{sack.Position.Z:F1})。");
         }
 
         if (!vnavmesh.IsInstalled || !vnavmesh.IsReady())
