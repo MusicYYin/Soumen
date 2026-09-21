@@ -2,8 +2,11 @@ name: Release
 
 on:
   push:
-    tags:
-      - '*.*.*.*'
+    branches: [main]
+    paths:
+      - 'Soumen/Soumen.csproj'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,9 +22,10 @@ jobs:
       - name: Validate version
         shell: pwsh
         run: |
-          $version = '${{ github.ref_name }}'
+          [xml]$project = Get-Content 'Soumen/Soumen.csproj'
+          $version = [string]$project.Project.PropertyGroup.Version
           if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
-            throw "Release tag must be a four-part version. Received: $version"
+            throw "Project version must be a four-part version. Received: $version"
           }
           "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
 
@@ -63,6 +67,7 @@ jobs:
         with:
           name: Soumen ${{ env.RELEASE_VERSION }}
           tag_name: ${{ env.RELEASE_VERSION }}
+          target_commitish: ${{ github.sha }}
           generate_release_notes: true
           files: Soumen.zip
           fail_on_unmatched_files: true
