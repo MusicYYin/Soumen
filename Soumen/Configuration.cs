@@ -2,6 +2,7 @@ using Dalamud.Configuration;
 using Dalamud.Plugin;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Soumen.Models;
 
 namespace Soumen;
 
@@ -18,7 +19,11 @@ public sealed class Configuration : IPluginConfiguration
     [JsonIgnore]
     private IDalamudPluginInterface? pluginInterface;
 
-    public int Version { get; set; } = 7;
+    public int Version { get; set; } = 8;
+
+    public OperatingMode OperatingMode { get; set; } = OperatingMode.Follow;
+
+    public uint LeaderTreasureMapItemId { get; set; } = 46185;
 
     public bool Enabled { get; set; } = false;
 
@@ -98,7 +103,7 @@ public sealed class Configuration : IPluginConfiguration
         }
 
         configuration.AutoDiscardItemIds ??= [];
-        configuration.Version = 7;
+        configuration.Version = 8;
         configuration.Save();
         return configuration;
     }
