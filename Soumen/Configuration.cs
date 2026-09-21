@@ -54,12 +54,6 @@ public sealed class Configuration : IPluginConfiguration
 
     public string ActiveAutoDiscardPresetId { get; set; } = string.Empty;
 
-    public long StatisticsGilEarned { get; set; }
-
-    public int StatisticsTreasureDungeonEntries { get; set; }
-
-    public int StatisticsTreasureDungeonCompletions { get; set; }
-
     public UiTheme UiTheme { get; set; } = UiTheme.Ocean;
 
     public bool TeleportWhenStuck { get; set; } = true;

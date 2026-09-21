@@ -7,16 +7,16 @@ namespace Soumen.Services;
 public sealed class StatisticsService : IDisposable
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
-    private static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(5);
 
     private readonly Configuration configuration;
     private DateTime nextPollUtc = DateTime.MinValue;
-    private DateTime nextSaveUtc = DateTime.MinValue;
     private long lastGil;
+    private long gilEarned;
+    private int treasureDungeonEntries;
+    private int treasureDungeonCompletions;
     private bool hasGilBaseline;
     private bool dungeonStateInitialized;
     private bool wasInTreasureDungeon;
-    private bool dirty;
 
     public StatisticsService(Configuration configuration)
     {
@@ -25,29 +25,26 @@ public sealed class StatisticsService : IDisposable
         Plugin.DutyState.DutyCompleted += OnDutyCompleted;
     }
 
-    public long GilEarned => configuration.StatisticsGilEarned;
+    public long GilEarned => gilEarned;
 
-    public int TreasureDungeonEntries => configuration.StatisticsTreasureDungeonEntries;
+    public int TreasureDungeonEntries => treasureDungeonEntries;
 
-    public int TreasureDungeonCompletions => configuration.StatisticsTreasureDungeonCompletions;
+    public int TreasureDungeonCompletions => treasureDungeonCompletions;
 
     public void Dispose()
     {
         Plugin.Framework.Update -= OnFrameworkUpdate;
         Plugin.DutyState.DutyCompleted -= OnDutyCompleted;
-        SaveIfDirty();
     }
 
     public void Reset()
     {
-        configuration.StatisticsGilEarned = 0;
-        configuration.StatisticsTreasureDungeonEntries = 0;
-        configuration.StatisticsTreasureDungeonCompletions = 0;
+        gilEarned = 0;
+        treasureDungeonEntries = 0;
+        treasureDungeonCompletions = 0;
         hasGilBaseline = TryReadGil(out lastGil);
         wasInTreasureDungeon = TreasureContext.IsTreasureDungeon();
         dungeonStateInitialized = true;
-        dirty = false;
-        configuration.Save();
     }
 
     private void OnFrameworkUpdate(IFramework framework)
@@ -64,13 +61,11 @@ public sealed class StatisticsService : IDisposable
         {
             hasGilBaseline = false;
             dungeonStateInitialized = false;
-            SaveIfDue(now);
             return;
         }
 
         TrackTreasureDungeonEntry();
         TrackGil();
-        SaveIfDue(now);
     }
 
     private void TrackTreasureDungeonEntry()
@@ -85,12 +80,10 @@ public sealed class StatisticsService : IDisposable
 
         if (inTreasureDungeon && !wasInTreasureDungeon)
         {
-            if (configuration.StatisticsTreasureDungeonEntries < int.MaxValue)
+            if (treasureDungeonEntries < int.MaxValue)
             {
-                configuration.StatisticsTreasureDungeonEntries++;
+                treasureDungeonEntries++;
             }
-
-            dirty = true;
         }
 
         wasInTreasureDungeon = inTreasureDungeon;
@@ -113,8 +106,7 @@ public sealed class StatisticsService : IDisposable
 
         if (currentGil > lastGil)
         {
-            configuration.StatisticsGilEarned += currentGil - lastGil;
-            dirty = true;
+            gilEarned += currentGil - lastGil;
         }
 
         lastGil = currentGil;
@@ -128,35 +120,10 @@ public sealed class StatisticsService : IDisposable
             return;
         }
 
-        if (configuration.StatisticsTreasureDungeonCompletions < int.MaxValue)
+        if (treasureDungeonCompletions < int.MaxValue)
         {
-            configuration.StatisticsTreasureDungeonCompletions++;
+            treasureDungeonCompletions++;
         }
-
-        dirty = true;
-        SaveIfDirty();
-    }
-
-    private void SaveIfDue(DateTime now)
-    {
-        if (!dirty || now < nextSaveUtc)
-        {
-            return;
-        }
-
-        SaveIfDirty();
-        nextSaveUtc = now + SaveInterval;
-    }
-
-    private void SaveIfDirty()
-    {
-        if (!dirty)
-        {
-            return;
-        }
-
-        configuration.Save();
-        dirty = false;
     }
 
     private static unsafe bool TryReadGil(out long gil)

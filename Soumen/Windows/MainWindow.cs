@@ -545,7 +545,7 @@ public sealed class MainWindow : Window
         ImGui.SameLine();
         ImGui.TextColored(Muted, "右键加入");
 
-        var sourceNames = new[] { "最近掉落", "搜索全部" };
+        var sourceNames = new[] { "最近获得", "搜索全部" };
         discardSource = Math.Clamp(discardSource, 0, sourceNames.Length - 1);
         ImGui.SetNextItemWidth(-1f);
         if (ImGui.BeginCombo("##SoumenDiscardSourcePicker", sourceNames[discardSource]))
@@ -823,7 +823,7 @@ public sealed class MainWindow : Window
     {
         ImGui.Spacing();
         DrawSectionTitle("统计");
-        ImGui.TextColored(Muted, "自上次重置起，统计 Soumen 开启期间的数据。");
+        ImGui.TextColored(Muted, "统计本次插件加载期间、Soumen 开启时的数据；重新加载插件后自动清零。");
         ImGui.Spacing();
 
         if (ImGui.BeginTable("##SoumenStatistics", 3, ImGuiTableFlags.SizingStretchSame))
