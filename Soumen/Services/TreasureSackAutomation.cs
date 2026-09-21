@@ -6,8 +6,8 @@ namespace Soumen.Services;
 
 public sealed class TreasureSackAutomation : IDisposable
 {
-    private const uint GoldSackDataId = 0x1EBE47;
-    private const uint SilverSackDataId = 0x1EBE48;
+    internal const uint GoldSackDataId = 0x1EBE47;
+    internal const uint SilverSackDataId = 0x1EBE48;
     private const float CollectionRange = 0.15f;
 
     private static readonly TimeSpan UpdateInterval = TimeSpan.FromMilliseconds(100);
@@ -40,6 +40,10 @@ public sealed class TreasureSackAutomation : IDisposable
         Plugin.Framework.Update -= OnFrameworkUpdate;
         StopOwnedNavigation();
     }
+
+    internal static bool HasCollectibleSacks()
+        => Plugin.ObjectTable.Any(obj =>
+            obj.Address != 0 && obj.BaseId is GoldSackDataId or SilverSackDataId);
 
     private void OnFrameworkUpdate(IFramework framework)
     {

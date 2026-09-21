@@ -93,7 +93,7 @@ public sealed class TreasureDungeonAutomation : IDisposable
         TryLeaveDuty();
     }
 
-    private static unsafe bool HasPendingLootDistribution()
+    internal static unsafe bool HasPendingLootDistribution()
     {
         var loot = Loot.Instance();
         if (loot == null)

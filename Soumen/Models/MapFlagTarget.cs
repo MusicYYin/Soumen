@@ -15,10 +15,13 @@ public sealed record MapFlagTarget(
     float MapX,
     float MapY,
     string PlaceName,
-    DateTime ReceivedAtUtc)
+    DateTime ReceivedAtUtc,
+    bool IsOwnTreasure = false)
 {
     public string SenderKey
-        => SenderContentId != 0
+        => IsOwnTreasure
+            ? "self:treasure"
+            : SenderContentId != 0
             ? $"cid:{SenderContentId}"
             : $"name:{SenderName}@{SenderWorldId}";
 

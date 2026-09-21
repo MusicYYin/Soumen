@@ -20,6 +20,7 @@ public sealed class MainWindow : Window
 
     private readonly Configuration configuration;
     private readonly MapFlagAutomation automation;
+    private readonly LeaderTreasureAutomation leaderAutomation;
     private readonly AutoDiscardService autoDiscardService;
     private readonly DiagnosticLogger diagnostics;
     private string discardSearch = string.Empty;
@@ -28,12 +29,14 @@ public sealed class MainWindow : Window
     public MainWindow(
         Configuration configuration,
         MapFlagAutomation automation,
+        LeaderTreasureAutomation leaderAutomation,
         AutoDiscardService autoDiscardService,
         DiagnosticLogger diagnostics)
         : base("Soumen##SoumenMain")
     {
         this.configuration = configuration;
         this.automation = automation;
+        this.leaderAutomation = leaderAutomation;
         this.autoDiscardService = autoDiscardService;
         this.diagnostics = diagnostics;
 
@@ -102,6 +105,8 @@ public sealed class MainWindow : Window
     private void DrawOverview()
     {
         ImGui.Spacing();
+        DrawModeSelector();
+        ImGui.Spacing();
         DrawControlBar();
         ImGui.Spacing();
         DrawStatusCard();
@@ -109,6 +114,50 @@ public sealed class MainWindow : Window
         DrawDestinationList();
         ImGui.Spacing();
         DrawDependencies();
+    }
+
+    private void DrawModeSelector()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var width = (ImGui.GetContentRegionAvail().X - spacing) / 2f;
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 8f * scale);
+
+        DrawModeButton(
+            "跟车模式",
+            "读取队伍坐标并导航",
+            OperatingMode.Follow,
+            width,
+            scale);
+        ImGui.SameLine();
+        DrawModeButton(
+            "车头模式",
+            "使用自己的图并推进流程",
+            OperatingMode.Leader,
+            width,
+            scale);
+
+        ImGui.PopStyleVar();
+    }
+
+    private void DrawModeButton(
+        string title,
+        string subtitle,
+        OperatingMode mode,
+        float width,
+        float scale)
+    {
+        var selected = configuration.OperatingMode == mode;
+        ImGui.PushStyleColor(ImGuiCol.Button, selected ? AccentSoft : Panel);
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered,
+            selected ? new Vector4(0.13f, 0.29f, 0.41f, 1f) : new Vector4(0.12f, 0.14f, 0.18f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.Text, selected ? Accent : Muted);
+        if (ImGui.Button($"{title}\n{subtitle}##{mode}", new Vector2(width, 54f * scale)))
+        {
+            automation.SetOperatingMode(mode);
+        }
+
+        ImGui.PopStyleColor(3);
     }
 
     private void DrawControlBar()
@@ -139,6 +188,15 @@ public sealed class MainWindow : Window
         {
             automation.Stop();
         }
+
+        if (configuration.OperatingMode == OperatingMode.Leader)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button("重新检查", new Vector2(112f, 38f) * scale))
+            {
+                leaderAutomation.Restart();
+            }
+        }
         ImGui.EndDisabled();
 
         ImGui.PopStyleVar();
@@ -149,19 +207,43 @@ public sealed class MainWindow : Window
         var scale = ImGuiHelpers.GlobalScale;
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 9f * scale);
         ImGui.PushStyleColor(ImGuiCol.ChildBg, automation.ActiveTarget == null ? Panel : AccentSoft);
-        ImGui.BeginChild("##SoumenStatusCard", new Vector2(0f, 112f * scale), false);
+        ImGui.BeginChild("##SoumenStatusCard", new Vector2(0f, 132f * scale), false);
 
         ImGui.SetCursorPos(new Vector2(16f, 13f) * scale);
-        ImGui.TextColored(GetStateColor(automation.State), $"●  {GetStateName(automation.State)}");
+        if (configuration.OperatingMode == OperatingMode.Leader)
+        {
+            ImGui.TextColored(GetLeaderStateColor(leaderAutomation.State),
+                $"●  {GetLeaderStateName(leaderAutomation.State)}");
+        }
+        else
+        {
+            ImGui.TextColored(GetStateColor(automation.State), $"●  {GetStateName(automation.State)}");
+        }
         ImGui.SetCursorPosX(16f * scale);
-        ImGui.TextWrapped(automation.StatusText);
+        ImGui.TextWrapped(configuration.OperatingMode == OperatingMode.Leader
+            ? leaderAutomation.StatusText
+            : automation.StatusText);
+
+        if (configuration.OperatingMode == OperatingMode.Leader)
+        {
+            ImGui.Spacing();
+            ImGui.SetCursorPosX(16f * scale);
+            var saddle = leaderAutomation.SaddlebagLoaded
+                ? leaderAutomation.SaddlebagMapCount.ToString()
+                : "未读取";
+            ImGui.TextColored(
+                Muted,
+                $"{leaderAutomation.SelectedMapName}    已解读 {leaderAutomation.DecodedMapCount} · 背包 {leaderAutomation.InventoryMapCount} · 鞍囊 {saddle}");
+        }
 
         var target = automation.ActiveTarget;
         if (target != null)
         {
             ImGui.Spacing();
             ImGui.SetCursorPosX(16f * scale);
-            var mode = automation.IsManualSelection ? "手动选择 · 已锁定" : "最新坐标 · 自动选择";
+            var mode = target.IsOwnTreasure
+                ? "自己的藏宝图"
+                : automation.IsManualSelection ? "手动选择 · 已锁定" : "最新坐标 · 自动选择";
             ImGui.TextColored(Muted,
                 $"{mode}    {target.Sender}    {target.PlaceName}  X {target.MapX:F1}  Y {target.MapY:F1}");
         }
@@ -177,11 +259,15 @@ public sealed class MainWindow : Window
         var targets = automation.Destinations;
         if (targets.Count == 0)
         {
-            ImGui.TextColored(Muted, "等待小队或跨服小队成员发送坐标链接");
+            ImGui.TextColored(Muted, configuration.OperatingMode == OperatingMode.Leader
+                ? "等待自己的藏宝图旗标或队伍坐标"
+                : "等待小队或跨服小队成员发送坐标链接");
             return;
         }
 
-        ImGui.TextColored(Muted, "默认使用最新坐标；手动选择后锁定该目标。");
+        ImGui.TextColored(Muted, configuration.OperatingMode == OperatingMode.Leader
+            ? "默认前往自己的藏宝图；手动选择队友坐标会切换到跟车模式。"
+            : "默认使用最新坐标；手动选择后锁定该目标。");
         ImGui.Spacing();
 
         var flags = ImGuiTableFlags.RowBg
@@ -206,7 +292,8 @@ public sealed class MainWindow : Window
             ImGui.TableNextRow();
 
             ImGui.TableNextColumn();
-            ImGui.TextColored(active ? Accent : Muted, active ? "● 当前" : "候选");
+            ImGui.TextColored(active ? Accent : target.IsOwnTreasure ? Success : Muted,
+                active ? "● 当前" : target.IsOwnTreasure ? "自己的图" : "候选");
 
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(target.Sender);
@@ -265,6 +352,18 @@ public sealed class MainWindow : Window
 
     private void DrawSettings()
     {
+        ImGui.Spacing();
+        if (ImGui.CollapsingHeader("车头模式", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            ImGui.TextColored(Muted, "当前完整支持 G18；需要能在打开藏宝图时自动创建旗标的插件。");
+            ImGui.SetNextItemWidth(360f * ImGuiHelpers.GlobalScale);
+            if (ImGui.BeginCombo("藏宝图##LeaderTreasureMap", $"G18 · {leaderAutomation.SelectedMapName}"))
+            {
+                ImGui.Selectable($"G18 · {leaderAutomation.SelectedMapName}", true);
+                ImGui.EndCombo();
+            }
+        }
+
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("移动与路线", ImGuiTreeNodeFlags.DefaultOpen))
         {
@@ -348,8 +447,8 @@ public sealed class MainWindow : Window
     private static void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.3.5");
-        ImGui.TextWrapped("小队藏宝图坐标导航插件。");
+        DrawSectionTitle("Soumen 0.4.0");
+        ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
         ImGui.TextColored(Muted, "命令：/soumen · on · off · pause · resume · stop");
@@ -582,6 +681,38 @@ public sealed class MainWindow : Window
             AutomationState.Error => Danger,
             AutomationState.WaitingForPlayer or AutomationState.WaitingForVnavmesh or AutomationState.PlanningRoute => Warning,
             _ => Accent,
+        };
+
+    private static Vector4 GetLeaderStateColor(LeaderAutomationState state)
+        => state switch
+        {
+            LeaderAutomationState.Inactive => Muted,
+            LeaderAutomationState.Waiting or LeaderAutomationState.WaitingForParty => Warning,
+            LeaderAutomationState.Error => Danger,
+            LeaderAutomationState.Combat => Warning,
+            _ => Accent,
+        };
+
+    private static string GetLeaderStateName(LeaderAutomationState state)
+        => state switch
+        {
+            LeaderAutomationState.Inactive => "车头未运行",
+            LeaderAutomationState.LookingForMap => "检查藏宝图",
+            LeaderAutomationState.MovingMapFromSaddlebag => "读取鞍囊",
+            LeaderAutomationState.DecipheringMap or LeaderAutomationState.ConfirmingDecipher => "解读藏宝图",
+            LeaderAutomationState.OpeningDecodedMap or LeaderAutomationState.WaitingForFlag => "读取坐标",
+            LeaderAutomationState.Navigating => "前往藏宝图",
+            LeaderAutomationState.WaitingForParty => "等待队友",
+            LeaderAutomationState.Digging => "挖掘中",
+            LeaderAutomationState.ApproachingChest or LeaderAutomationState.ReopeningChest => "开启宝箱",
+            LeaderAutomationState.WaitingForCombat => "等待敌人",
+            LeaderAutomationState.Combat => "战斗中",
+            LeaderAutomationState.WaitingForLootOrPortal => "等待结算",
+            LeaderAutomationState.EnteringPortal => "进入宝物库",
+            LeaderAutomationState.Dungeon => "宝物库中",
+            LeaderAutomationState.Waiting => "等待处理",
+            LeaderAutomationState.Error => "需要处理",
+            _ => state.ToString(),
         };
 
     private static string GetStateName(AutomationState state)

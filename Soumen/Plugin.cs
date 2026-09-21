@@ -34,6 +34,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly PartyTeleportService partyTeleportService;
     private readonly TreasureDungeonAutomation treasureDungeonAutomation;
     private readonly TreasureSackAutomation treasureSackAutomation;
+    private readonly LeaderTreasureAutomation leaderTreasureAutomation;
     private readonly AutoDiscardService autoDiscardService;
     private readonly MainWindow mainWindow;
 
@@ -46,8 +47,9 @@ public sealed class Plugin : IDalamudPlugin
         partyTeleportService = new PartyTeleportService(configuration, automation.PrepareForPartyTeleport);
         treasureDungeonAutomation = new TreasureDungeonAutomation(configuration);
         treasureSackAutomation = new TreasureSackAutomation(configuration, automation, diagnostics);
+        leaderTreasureAutomation = new LeaderTreasureAutomation(configuration, automation, diagnostics);
         autoDiscardService = new AutoDiscardService(configuration, automation, diagnostics);
-        mainWindow = new MainWindow(configuration, automation, autoDiscardService, diagnostics);
+        mainWindow = new MainWindow(configuration, automation, leaderTreasureAutomation, autoDiscardService, diagnostics);
         windowSystem.AddWindow(mainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -69,6 +71,7 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(CommandName);
         windowSystem.RemoveAllWindows();
         autoDiscardService.Dispose();
+        leaderTreasureAutomation.Dispose();
         treasureSackAutomation.Dispose();
         treasureDungeonAutomation.Dispose();
         partyTeleportService.Dispose();
