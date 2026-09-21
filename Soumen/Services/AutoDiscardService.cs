@@ -25,6 +25,16 @@ public sealed class AutoDiscardService : IDisposable
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan OutdoorSessionDuration = TimeSpan.FromHours(2);
     private const int RecentItemLimit = 20;
+    private static readonly string[] DiscardPromptFragments =
+    [
+        "Discard",
+        "を捨てます",
+        "wegwerfen",
+        "Jeter",
+        "确定要舍弃",
+        "確定要捨棄",
+        "버리시겠습니까",
+    ];
 
     private static readonly HashSet<string> G18EnglishNames = new(StringComparer.Ordinal)
     {
@@ -447,13 +457,7 @@ public sealed class AutoDiscardService : IDisposable
             return;
         }
 
-        var context = AgentInventoryContext.Instance();
-        if (context == null || context->DialogType != 1)
-        {
-            return;
-        }
-
-        for (var index = 1; index < 10; index++)
+        for (var index = 1; index < 100; index++)
         {
             var addon = Plugin.GameGui.GetAddonByName<AddonSelectYesno>("SelectYesno", index);
             if (addon == null || !addon->IsVisible || addon->PromptText == null)
@@ -463,8 +467,11 @@ public sealed class AutoDiscardService : IDisposable
 
             var prompt = addon->PromptText->NodeText.ExtractText();
             var expectedName = GetItemName(pendingOperation.Key.ItemId);
-            if (!string.IsNullOrWhiteSpace(expectedName)
-                && !prompt.Contains(expectedName, StringComparison.OrdinalIgnoreCase))
+            var isDiscardPrompt = (!string.IsNullOrWhiteSpace(expectedName)
+                    && prompt.Contains(expectedName, StringComparison.OrdinalIgnoreCase))
+                || DiscardPromptFragments.Any(fragment =>
+                    prompt.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+            if (!isDiscardPrompt)
             {
                 diagnostics.Write(
                     "自动丢弃",
@@ -474,6 +481,9 @@ public sealed class AutoDiscardService : IDisposable
 
             addon->YesButton->AtkComponentBase.SetEnabledState(true);
             addon->FireCallbackInt(0);
+            diagnostics.Write(
+                "自动丢弃",
+                $"已确认丢弃 {expectedName} ×{pendingOperation.Quantity}。" );
             pendingOperation = pendingOperation with
             {
                 Kind = PendingOperationKind.WaitingForRemoval,

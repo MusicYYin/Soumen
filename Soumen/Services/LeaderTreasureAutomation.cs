@@ -8,6 +8,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.Game.Event;
 using FFXIVClientStructs.FFXIV.Client.Game.Group;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
+using FFXIVClientStructs.FFXIV.Client.System.String;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
@@ -24,6 +25,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private const uint VaultOneironTerritoryId = 1279;
     private const uint HypnoslotNameRowId = 2014790;
     private const ushort LimsaLominsaLowerDecksTerritoryId = 129;
+    private static readonly uint[] MarketBoardDataIds = [2000402, 2000442];
     private const float ObjectApproachRange = 3.2f;
     private const float OutdoorObjectSearchRange = 55f;
 
@@ -33,12 +35,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
         InventoryType.Inventory2,
         InventoryType.Inventory3,
         InventoryType.Inventory4,
-    ];
-
-    private static readonly InventoryType[] SaddlebagInventories =
-    [
-        InventoryType.SaddleBag1,
-        InventoryType.SaddleBag2,
     ];
 
     private static readonly TimeSpan UpdateInterval = TimeSpan.FromMilliseconds(150);
@@ -61,7 +57,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private DateTime lastObjectNavigationUtc = DateTime.MinValue;
     private DateTime noTreasureEnemySinceUtc = DateTime.MinValue;
     private DateTime pendingYesUntilUtc = DateTime.MinValue;
-    private DateTime saddlebagOpenedUtc = DateTime.MinValue;
     private DateTime portalSearchStartedUtc = DateTime.MinValue;
     private DateTime restockArrivedUtc = DateTime.MinValue;
     private DateTime restockTeleportSubmittedUtc = DateTime.MinValue;
@@ -75,7 +70,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private nint navigationObjectAddress;
     private bool ownsNavigation;
     private bool decipherMenuSelectionIssued;
-    private bool marketTravelSubmitted;
+    private int decipherInventoryCountBefore;
+    private bool preferInventoryMap;
     private RestockStage restockStage;
     private bool disposed;
 
@@ -104,13 +100,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
     public int DecodedMapCount { get; private set; }
 
     public int InventoryMapCount { get; private set; }
-
-    public int SaddlebagMapCount { get; private set; }
-
-    public bool SaddlebagLoaded { get; private set; }
-
-    public bool LifestreamInstalled => Plugin.PluginInterface.InstalledPlugins.Any(plugin =>
-        plugin.IsLoaded && plugin.InternalName.Equals("Lifestream", StringComparison.OrdinalIgnoreCase));
 
     public void Dispose()
     {
@@ -213,6 +202,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
         if (State == LeaderAutomationState.Dungeon)
         {
+            preferInventoryMap = true;
             ResetCycle();
             SetState(LeaderAutomationState.LookingForMap, "已离开宝物库，检查下一张藏宝图");
         }
@@ -225,17 +215,11 @@ public sealed class LeaderTreasureAutomation : IDisposable
             case LeaderAutomationState.LookingForMap:
                 ProcessMapAcquisition(now);
                 break;
-            case LeaderAutomationState.MovingMapFromSaddlebag:
-                ProcessSaddlebag(now);
-                break;
             case LeaderAutomationState.RestockingTravel:
                 ProcessRestockingTravel(now);
                 break;
             case LeaderAutomationState.RestockingMarket:
                 ProcessRestockingMarket(now);
-                break;
-            case LeaderAutomationState.RestockingSaddlebag:
-                ProcessRestockingSaddlebag(now);
                 break;
             case LeaderAutomationState.DecipheringMap:
                 ProcessDecipherMenu(now);
@@ -284,13 +268,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private void ProcessMapAcquisition(DateTime now)
     {
-        if (restockStage == RestockStage.DecipherFirst && DecodedMapCount > 0)
-        {
-            ResumeRestockAfterDecipher();
-            return;
-        }
-
-        if (DecodedMapCount > 0)
+        if (!preferInventoryMap && DecodedMapCount > 0)
         {
             ClearMapFlag();
             SetState(LeaderAutomationState.OpeningDecodedMap, "正在使用已解读的 G18 藏宝图");
@@ -300,86 +278,46 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
         if (InventoryMapCount > 0)
         {
-            if (now - lastActionUtc < ActionRetryInterval)
-            {
-                return;
-            }
-
-            lastActionUtc = now;
-            decipherMenuSelectionIssued = false;
-            Plugin.CommandManager.ProcessCommand("/gaction decipher");
-            SetState(LeaderAutomationState.DecipheringMap, $"正在解读 {SelectedMapName}");
-            diagnostics.Write("车头", $"已打开解读菜单，目标物品 #{configuration.LeaderTreasureMapItemId}。" );
+            BeginDecipher(now);
             return;
         }
 
-        SetState(LeaderAutomationState.MovingMapFromSaddlebag, "背包中没有 G18，正在检查陆行鸟鞍囊");
-        saddlebagOpenedUtc = DateTime.MinValue;
-        lastActionUtc = DateTime.MinValue;
+        if (configuration.AutoRestockLeaderMaps)
+        {
+            BeginRestock();
+            return;
+        }
+
+        if (preferInventoryMap && DecodedMapCount > 0)
+        {
+            StatusText = "本张地图已完成，等待已解读藏宝图状态刷新";
+            return;
+        }
+
+        SetState(LeaderAutomationState.Waiting, "任务道具和背包中都没有可用的 G18 藏宝图");
     }
 
-    private void ProcessSaddlebag(DateTime now)
+    private void BeginDecipher(DateTime now)
     {
-        if (DecodedMapCount > 0 || InventoryMapCount > 0)
+        if (now - lastActionUtc < ActionRetryInterval)
         {
-            SetState(LeaderAutomationState.LookingForMap, "藏宝图已准备好");
             return;
         }
 
-        if (!SaddlebagLoaded)
-        {
-            if (now - lastActionUtc >= TimeSpan.FromSeconds(4))
-            {
-                lastActionUtc = now;
-                saddlebagOpenedUtc = now;
-                Plugin.CommandManager.ProcessCommand("/saddlebag");
-                StatusText = "正在打开陆行鸟鞍囊";
-            }
-
-            if (saddlebagOpenedUtc != DateTime.MinValue
-                && now - saddlebagOpenedUtc > TimeSpan.FromSeconds(10))
-            {
-                SetState(LeaderAutomationState.Waiting, "无法读取陆行鸟鞍囊，请手动打开后点击“重新检查”");
-            }
-
-            return;
-        }
-
-        if (SaddlebagMapCount == 0)
-        {
-            if (configuration.AutoRestockLeaderMaps)
-            {
-                BeginRestock();
-            }
-            else
-            {
-                SetState(LeaderAutomationState.Waiting, "没有找到可用的 G18 藏宝图");
-            }
-            return;
-        }
-
-        if (TryMoveMapFromSaddlebag())
-        {
-            lastActionUtc = now;
-            StatusText = "已从陆行鸟鞍囊取出一张 G18";
-            return;
-        }
-
-        SetState(LeaderAutomationState.Waiting, "无法从鞍囊取图，请确认背包有空格");
+        lastActionUtc = now;
+        decipherInventoryCountBefore = InventoryMapCount;
+        decipherMenuSelectionIssued = false;
+        Plugin.CommandManager.ProcessCommand("/gaction decipher");
+        SetState(LeaderAutomationState.DecipheringMap, $"正在解读 {SelectedMapName}");
+        diagnostics.Write("车头", $"已打开解读菜单，目标物品 #{configuration.LeaderTreasureMapItemId}，背包数量={InventoryMapCount}。" );
     }
 
     private void BeginRestock()
     {
-        if (!LifestreamInstalled)
-        {
-            SetState(LeaderAutomationState.Waiting, "自动补图需要安装并启用 Lifestream");
-            return;
-        }
-
         StopOwnedNavigation();
         restockStage = RestockStage.BuyFirst;
         marketPurchase.Reset();
-        diagnostics.Write("自动补图", "未找到任何 G18，开始前往海都补充三张藏宝图。" );
+        diagnostics.Write("自动补图", "未找到可继续使用的 G18，开始前往海都补充两张藏宝图。" );
         PrepareRestockTravel("正在前往海都市场板购买第一张 G18");
     }
 
@@ -392,17 +330,9 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        if (!LifestreamInstalled)
-        {
-            CancelRestock();
-            SetState(LeaderAutomationState.Waiting, "自动补图需要安装并启用 Lifestream");
-            return;
-        }
-
         if (Plugin.ClientState.TerritoryType != LimsaLominsaLowerDecksTerritoryId)
         {
             restockArrivedUtc = DateTime.MinValue;
-            marketTravelSubmitted = false;
             if (restockTeleportSubmittedUtc != DateTime.MinValue)
             {
                 if (now - restockTeleportSubmittedUtc > TimeSpan.FromSeconds(45))
@@ -470,24 +400,31 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        if (!marketTravelSubmitted)
+        var marketBoard = FindMarketBoard();
+        if (marketBoard != null)
         {
-            Plugin.CommandManager.ProcessCommand("/li mb");
-            marketTravelSubmitted = true;
-            marketTravelStartedUtc = now;
-            StatusText = "正在通过 Lifestream 前往市场板";
-            diagnostics.Write("自动补图", "已调用 Lifestream /li mb，等待市场板打开。" );
+            marketTravelStartedUtc = marketTravelStartedUtc == DateTime.MinValue ? now : marketTravelStartedUtc;
+            if (ApproachAndInteract(marketBoard, now, "海都市场布告板"))
+            {
+                StatusText = "已操作海都市场布告板，等待市场界面";
+            }
             return;
         }
 
-        if (now - marketTravelStartedUtc > TimeSpan.FromSeconds(120))
+        marketTravelStartedUtc = marketTravelStartedUtc == DateTime.MinValue ? now : marketTravelStartedUtc;
+        if (now - marketTravelStartedUtc > TimeSpan.FromSeconds(30))
         {
             CancelRestock();
-            SetState(LeaderAutomationState.Error, "前往海都市场板超时，请检查 Lifestream 状态");
+            SetState(LeaderAutomationState.Error, "海都市场布告板未载入，请靠近布告板后重新检查");
             return;
         }
 
-        StatusText = "正在前往海都市场板，等待界面打开";
+        StatusText = "已到达海都，等待市场布告板载入";
+        diagnostics.WriteThrottled(
+            "market-board-not-found",
+            "自动补图",
+            $"暂未在物体表中找到市场布告板（DataId 2000402/2000442）；position={FormatPosition(Plugin.ObjectTable.LocalPlayer?.Position)}。",
+            TimeSpan.FromSeconds(5));
     }
 
     private void ProcessRestockingMarket(DateTime now)
@@ -540,75 +477,9 @@ public sealed class LeaderTreasureAutomation : IDisposable
                 break;
 
             case RestockStage.BuySecond:
-                marketPurchase.CloseBoard();
-                marketPurchase.Reset();
-                restockStage = RestockStage.StoreSecond;
-                saddlebagOpenedUtc = DateTime.MinValue;
-                lastActionUtc = DateTime.MinValue;
-                SetState(LeaderAutomationState.RestockingSaddlebag, "第二张 G18 已购买，准备放入陆行鸟鞍囊");
-                break;
-
-            case RestockStage.BuyThird:
                 CompleteRestock();
                 break;
         }
-    }
-
-    private void ProcessRestockingSaddlebag(DateTime now)
-    {
-        if (DecodedMapCount > 0 && SaddlebagMapCount > 0 && InventoryMapCount > 0)
-        {
-            CompleteRestock();
-            return;
-        }
-
-        if (SaddlebagMapCount > 0 && InventoryMapCount == 0)
-        {
-            restockStage = RestockStage.BuyThird;
-            PrepareRestockTravel("第二张 G18 已放入鞍囊，返回市场板购买第三张");
-            return;
-        }
-
-        if (InventoryMapCount == 0)
-        {
-            StatusText = "等待第二张 G18 进入背包";
-            return;
-        }
-
-        if (!SaddlebagLoaded)
-        {
-            if (now - lastActionUtc >= TimeSpan.FromSeconds(4))
-            {
-                lastActionUtc = now;
-                saddlebagOpenedUtc = now;
-                Plugin.CommandManager.ProcessCommand("/saddlebag");
-                StatusText = "正在打开陆行鸟鞍囊";
-            }
-
-            if (saddlebagOpenedUtc != DateTime.MinValue
-                && now - saddlebagOpenedUtc > TimeSpan.FromSeconds(12))
-            {
-                CancelRestock();
-                SetState(LeaderAutomationState.Error, "无法读取陆行鸟鞍囊，自动补图已停止");
-            }
-
-            return;
-        }
-
-        if (now - lastActionUtc < TimeSpan.FromSeconds(2))
-        {
-            return;
-        }
-
-        lastActionUtc = now;
-        if (TryMoveMapToSaddlebag())
-        {
-            StatusText = "正在把第二张 G18 放入陆行鸟鞍囊";
-            return;
-        }
-
-        CancelRestock();
-        SetState(LeaderAutomationState.Error, "无法把第二张 G18 放入鞍囊，请确认鞍囊有空格");
     }
 
     private void ResumeRestockAfterDecipher()
@@ -630,14 +501,12 @@ public sealed class LeaderTreasureAutomation : IDisposable
             {
                 RestockStage.BuyFirst => "正在购买第一张 G18",
                 RestockStage.BuySecond => "正在购买第二张 G18",
-                RestockStage.BuyThird => "正在购买第三张 G18",
                 _ => "正在购买 G18",
             });
     }
 
     private void PrepareRestockTravel(string status)
     {
-        marketTravelSubmitted = false;
         marketTravelStartedUtc = DateTime.MinValue;
         restockArrivedUtc = DateTime.MinValue;
         restockTeleportSubmittedUtc = DateTime.MinValue;
@@ -652,11 +521,11 @@ public sealed class LeaderTreasureAutomation : IDisposable
         marketPurchase.CloseBoard();
         marketPurchase.Reset();
         restockStage = RestockStage.None;
-        marketTravelSubmitted = false;
         nextRestockRetryUtc = DateTime.MinValue;
         lastActionUtc = DateTime.UtcNow;
-        diagnostics.Write("自动补图", $"三张 G18 已补充完成；第三张单价 {unitPrice:N0} Gil。" );
-        SetState(LeaderAutomationState.LookingForMap, "三张 G18 已补满，准备使用已解读藏宝图");
+        preferInventoryMap = false;
+        diagnostics.Write("自动补图", $"两张 G18 已补充完成；第二张单价 {unitPrice:N0} Gil。" );
+        SetState(LeaderAutomationState.LookingForMap, "两张 G18 已补满，准备使用已解读藏宝图");
     }
 
     private void CancelRestock()
@@ -668,7 +537,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
         marketPurchase.Reset();
         restockStage = RestockStage.None;
-        marketTravelSubmitted = false;
         restockArrivedUtc = DateTime.MinValue;
         restockTeleportSubmittedUtc = DateTime.MinValue;
         marketTravelStartedUtc = DateTime.MinValue;
@@ -677,27 +545,14 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private unsafe void ProcessDecipherMenu(DateTime now)
     {
-        if (DecodedMapCount > 0)
+        if (decipherMenuSelectionIssued)
         {
-            if (restockStage == RestockStage.DecipherFirst)
-            {
-                ResumeRestockAfterDecipher();
-            }
-            else
-            {
-                SetState(LeaderAutomationState.LookingForMap, "藏宝图已解读");
-            }
             return;
         }
 
         if (now - stateEnteredUtc > TimeSpan.FromSeconds(8))
         {
             SetState(LeaderAutomationState.Error, "未能在解读菜单中找到所选藏宝图");
-            return;
-        }
-
-        if (decipherMenuSelectionIssued)
-        {
             return;
         }
 
@@ -708,7 +563,9 @@ public sealed class LeaderTreasureAutomation : IDisposable
         }
 
         var targetName = GetSelectedMapName();
+        var normalizedTarget = NormalizeMapName(targetName);
         var menu = addon->PopupMenu.PopupMenu;
+        var entries = new List<string>();
         for (var index = 0; index < menu.EntryCount; index++)
         {
             var pointer = menu.EntryNames[index].Value;
@@ -718,7 +575,13 @@ public sealed class LeaderTreasureAutomation : IDisposable
             }
 
             var text = MemoryHelper.ReadSeStringNullTerminated((nint)pointer).TextValue;
-            if (!text.Contains(targetName, StringComparison.OrdinalIgnoreCase))
+            entries.Add(text);
+            var normalizedEntry = NormalizeMapName(text);
+            if (!text.Contains(targetName, StringComparison.OrdinalIgnoreCase)
+                && (normalizedTarget.Length == 0
+                    || normalizedEntry.Length == 0
+                    || (!normalizedEntry.Contains(normalizedTarget, StringComparison.OrdinalIgnoreCase)
+                        && !normalizedTarget.Contains(normalizedEntry, StringComparison.OrdinalIgnoreCase))))
             {
                 continue;
             }
@@ -735,12 +598,19 @@ public sealed class LeaderTreasureAutomation : IDisposable
             diagnostics.Write("车头", $"在解读菜单第 {index} 项匹配到“{text}”。" );
             return;
         }
+
+        diagnostics.WriteThrottled(
+            "decipher-menu-entries",
+            "车头",
+            $"解读菜单未匹配“{targetName}”；当前条目：{string.Join("；", entries)}",
+            TimeSpan.FromSeconds(2));
     }
 
     private void ProcessDecipherConfirmation(DateTime now)
     {
-        if (DecodedMapCount > 0)
+        if (InventoryMapCount < decipherInventoryCountBefore)
         {
+            preferInventoryMap = false;
             if (restockStage == RestockStage.DecipherFirst)
             {
                 ResumeRestockAfterDecipher();
@@ -749,6 +619,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
             {
                 SetState(LeaderAutomationState.LookingForMap, "藏宝图已解读");
             }
+            diagnostics.Write("车头", $"解读完成：背包数量 {decipherInventoryCountBefore} -> {InventoryMapCount}，任务道具数量={DecodedMapCount}。" );
             return;
         }
 
@@ -786,7 +657,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
         if (target != null)
         {
             currentOwnTarget = target;
-            Plugin.CommandManager.ProcessCommand("/p <flag>");
+            SendPartyFlag();
             SetState(LeaderAutomationState.Navigating,
                 $"已发送自己的藏宝图坐标，前往 {target.PlaceName} {target.MapX:F1}, {target.MapY:F1}");
             return;
@@ -887,11 +758,13 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
+        pendingYesUntilUtc = now + TimeSpan.FromSeconds(8);
         SetState(LeaderAutomationState.WaitingForCombat, "已打开宝箱，等待敌人出现");
     }
 
     private void ProcessWaitingForCombat(DateTime now)
     {
+        TryAcceptPendingYes(now);
         if (Plugin.Condition[ConditionFlag.InCombat] || HasTreasureEnemies())
         {
             StopOwnedNavigation();
@@ -977,12 +850,13 @@ public sealed class LeaderTreasureAutomation : IDisposable
         }
 
         portalSearchStartedUtc = portalSearchStartedUtc == DateTime.MinValue ? now : portalSearchStartedUtc;
-        if (now - portalSearchStartedUtc < TimeSpan.FromSeconds(12))
+        if (now - portalSearchStartedUtc < TimeSpan.FromSeconds(3))
         {
             StatusText = "等待传送魔纹出现";
             return;
         }
 
+        preferInventoryMap = true;
         ResetCycle();
         SetState(LeaderAutomationState.LookingForMap, "本张地图已结束，检查下一张藏宝图");
     }
@@ -1001,6 +875,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
             var portal = FindOutdoorPortal();
             if (portal == null)
             {
+                preferInventoryMap = true;
                 ResetCycle();
                 SetState(LeaderAutomationState.LookingForMap, "传送魔纹已关闭，检查下一张藏宝图");
             }
@@ -1068,7 +943,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private unsafe bool ApproachAndInteract(IGameObject gameObject, DateTime now, string label)
     {
         var player = Plugin.ObjectTable.LocalPlayer;
-        if (player == null || gameObject.Address == 0 || !gameObject.IsTargetable)
+        if (player == null || gameObject.Address == 0)
         {
             return false;
         }
@@ -1100,6 +975,12 @@ public sealed class LeaderTreasureAutomation : IDisposable
         }
 
         StopOwnedNavigation();
+        if (!gameObject.IsTargetable)
+        {
+            StatusText = $"已靠近{label}，等待可以交互";
+            return false;
+        }
+
         if (now - lastInteractionUtc < InteractionRetryInterval)
         {
             return false;
@@ -1217,11 +1098,41 @@ public sealed class LeaderTreasureAutomation : IDisposable
             }
 
             var native = (NativeGameObject*)obj.Address;
-            return native->ObjectKind == ObjectKind.BattleNpc
-                && native->SubKind == (byte)BattleNpcSubKind.Combatant
-                && native->EventId.ContentId == EventHandlerContent.TreasureHuntDirector
-                && native->NamePlateIconId is 60094 or 60096;
+            if (native->ObjectKind != ObjectKind.BattleNpc
+                || native->SubKind != (byte)BattleNpcSubKind.Combatant
+                || native->EventId.ContentId != EventHandlerContent.TreasureHuntDirector
+                || native->NamePlateIconId is not (60094 or 60096))
+            {
+                return false;
+            }
+
+            if (!TreasureContext.IsTreasureDungeon()
+                && trackedChestPosition != Vector3.Zero
+                && HorizontalDistance(obj.Position, trackedChestPosition) > OutdoorObjectSearchRange)
+            {
+                return false;
+            }
+
+            var ownerId = native->OwnerId;
+            if (ownerId == 0)
+            {
+                return TreasureContext.IsTreasureDungeon() || native->GetNamePlateColorType() != 11;
+            }
+
+            var localPlayer = Plugin.ObjectTable.LocalPlayer;
+            var localEntityId = localPlayer != null && localPlayer.Address != 0
+                ? ((NativeGameObject*)localPlayer.Address)->EntityId
+                : 0;
+            var groupManager = GroupManager.Instance();
+            var group = groupManager == null ? null : groupManager->GetGroup();
+            return ownerId == localEntityId || (group != null && group->IsEntityIdInParty(ownerId));
         });
+
+    private IGameObject? FindMarketBoard()
+        => Plugin.ObjectTable
+            .Where(obj => obj.Address != 0 && MarketBoardDataIds.Contains(obj.DataId))
+            .OrderBy(obj => HorizontalDistance(Plugin.ObjectTable.LocalPlayer?.Position ?? obj.Position, obj.Position))
+            .FirstOrDefault();
 
     private unsafe bool IsTreasureHuntObject(IGameObject gameObject, ObjectKind objectKind)
     {
@@ -1280,19 +1191,11 @@ public sealed class LeaderTreasureAutomation : IDisposable
         {
             DecodedMapCount = 0;
             InventoryMapCount = 0;
-            SaddlebagMapCount = 0;
-            SaddlebagLoaded = false;
             return;
         }
 
         DecodedMapCount = CountItem(manager, InventoryType.KeyItems, GargantuaskinDecodedEventItemId);
         InventoryMapCount = MainInventories.Sum(type => CountItem(manager, type, configuration.LeaderTreasureMapItemId));
-        SaddlebagLoaded = SaddlebagInventories.All(type =>
-        {
-            var container = manager->GetInventoryContainer(type);
-            return container != null && container->IsLoaded;
-        });
-        SaddlebagMapCount = SaddlebagInventories.Sum(type => CountItem(manager, type, configuration.LeaderTreasureMapItemId));
     }
 
     private static unsafe int CountItem(InventoryManager* manager, InventoryType type, uint itemId)
@@ -1316,156 +1219,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
         return count;
     }
 
-    private unsafe bool TryMoveMapFromSaddlebag()
-    {
-        var manager = InventoryManager.Instance();
-        if (manager == null)
-        {
-            return false;
-        }
-
-        foreach (var sourceType in SaddlebagInventories)
-        {
-            var source = manager->GetInventoryContainer(sourceType);
-            if (source == null || !source->IsLoaded)
-            {
-                continue;
-            }
-
-            for (var sourceIndex = 0; sourceIndex < source->Size; sourceIndex++)
-            {
-                var sourceItem = source->GetInventorySlot(sourceIndex);
-                if (sourceItem == null || sourceItem->ItemId != configuration.LeaderTreasureMapItemId)
-                {
-                    continue;
-                }
-
-                if (!TryFindEmptyMainSlot(manager, out var destinationType, out var destinationIndex))
-                {
-                    return false;
-                }
-
-                manager->MoveItemSlot(
-                    sourceType,
-                    (ushort)sourceIndex,
-                    destinationType,
-                    (ushort)destinationIndex,
-                    true);
-                diagnostics.Write(
-                    "车头",
-                    $"从 {sourceType}[{sourceIndex}] 移动一张图到 {destinationType}[{destinationIndex}]。" );
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private unsafe bool TryMoveMapToSaddlebag()
-    {
-        var manager = InventoryManager.Instance();
-        if (manager == null || SaddlebagMapCount > 0)
-        {
-            return false;
-        }
-
-        foreach (var sourceType in MainInventories)
-        {
-            var source = manager->GetInventoryContainer(sourceType);
-            if (source == null || !source->IsLoaded)
-            {
-                continue;
-            }
-
-            for (var sourceIndex = 0; sourceIndex < source->Size; sourceIndex++)
-            {
-                var sourceItem = source->GetInventorySlot(sourceIndex);
-                if (sourceItem == null || sourceItem->ItemId != configuration.LeaderTreasureMapItemId)
-                {
-                    continue;
-                }
-
-                if (!TryFindEmptySaddlebagSlot(manager, out var destinationType, out var destinationIndex))
-                {
-                    return false;
-                }
-
-                manager->MoveItemSlot(
-                    sourceType,
-                    (ushort)sourceIndex,
-                    destinationType,
-                    (ushort)destinationIndex,
-                    true);
-                diagnostics.Write(
-                    "自动补图",
-                    $"从 {sourceType}[{sourceIndex}] 移动第二张图到 {destinationType}[{destinationIndex}]。" );
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static unsafe bool TryFindEmptyMainSlot(
-        InventoryManager* manager,
-        out InventoryType inventoryType,
-        out int slotIndex)
-    {
-        foreach (var type in MainInventories)
-        {
-            var container = manager->GetInventoryContainer(type);
-            if (container == null || !container->IsLoaded)
-            {
-                continue;
-            }
-
-            for (var index = 0; index < container->Size; index++)
-            {
-                var item = container->GetInventorySlot(index);
-                if (item != null && item->ItemId == 0)
-                {
-                    inventoryType = type;
-                    slotIndex = index;
-                    return true;
-                }
-            }
-        }
-
-        inventoryType = default;
-        slotIndex = -1;
-        return false;
-    }
-
-    private static unsafe bool TryFindEmptySaddlebagSlot(
-        InventoryManager* manager,
-        out InventoryType inventoryType,
-        out int slotIndex)
-    {
-        foreach (var type in SaddlebagInventories)
-        {
-            var container = manager->GetInventoryContainer(type);
-            if (container == null || !container->IsLoaded)
-            {
-                continue;
-            }
-
-            for (var index = 0; index < container->Size; index++)
-            {
-                var item = container->GetInventorySlot(index);
-                if (item != null && item->ItemId == 0)
-                {
-                    inventoryType = type;
-                    slotIndex = index;
-                    return true;
-                }
-            }
-        }
-
-        inventoryType = default;
-        slotIndex = -1;
-        return false;
-    }
-
     private string GetSelectedMapName()
     {
         try
@@ -1479,6 +1232,46 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return "G18 藏宝图";
         }
     }
+
+    private static string NormalizeMapName(string value)
+    {
+        var normalized = new string(value
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToLowerInvariant)
+            .ToArray());
+        foreach (var prefix in new[] { "陈旧的", "陳舊的", "timeworn", "usée", "uséeparletemps" })
+        {
+            normalized = normalized.Replace(prefix, string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return normalized;
+    }
+
+    private unsafe void SendPartyFlag()
+    {
+        var uiModule = UIModule.Instance();
+        if (uiModule == null)
+        {
+            diagnostics.Write("车头", "无法取得 UIModule，未发送小队坐标。" );
+            return;
+        }
+
+        var message = Utf8String.FromString("/p <flag>");
+        try
+        {
+            uiModule->ProcessChatBoxEntry(message);
+            diagnostics.Write("车头", "已向小队发送当前旗标。" );
+        }
+        finally
+        {
+            message->Dtor(true);
+        }
+    }
+
+    private static string FormatPosition(Vector3? position)
+        => position is { } value
+            ? $"({value.X:F1},{value.Y:F1},{value.Z:F1})"
+            : "无";
 
     private static string LoadHypnoslotName()
     {
@@ -1537,7 +1330,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
         CancelRestock();
         ResetOutdoorEncounter();
         decipherMenuSelectionIssued = false;
-        saddlebagOpenedUtc = DateTime.MinValue;
+        decipherInventoryCountBefore = 0;
         dungeonInteractionTimes.Clear();
     }
 
@@ -1574,7 +1367,5 @@ public sealed class LeaderTreasureAutomation : IDisposable
         BuyFirst,
         DecipherFirst,
         BuySecond,
-        StoreSecond,
-        BuyThird,
     }
 }

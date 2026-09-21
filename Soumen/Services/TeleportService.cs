@@ -77,9 +77,8 @@ public sealed class TeleportService
             return false;
         }
 
-        // Lifestream and GatherBuddy both treat reaching this call as a submitted
-        // request and confirm success from casting/loading state afterwards. The
-        // native return value is not a reliable completion signal.
+        // Reaching this call only means that the request was submitted. Confirm
+        // completion from casting/loading state; the return value is not reliable.
         var nativeResult = telepo->Teleport(aetheryteId, 0);
         Plugin.Log.Debug(
             "Submitted teleport request for aetheryte {AetheryteId}; native result: {NativeResult}.",

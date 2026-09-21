@@ -4,10 +4,8 @@ public enum LeaderAutomationState
 {
     Inactive,
     LookingForMap,
-    MovingMapFromSaddlebag,
     RestockingTravel,
     RestockingMarket,
-    RestockingSaddlebag,
     DecipheringMap,
     ConfirmingDecipher,
     OpeningDecodedMap,

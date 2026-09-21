@@ -16,7 +16,7 @@ FF14 Dalamud 藏宝图自动化插件。
 - 可配合 AE Assist 和 BossMod Reborn 使用。
 - 提供跟车与车头两种模式。
 - 车头模式可自动使用 G18、发旗、导航、等队友、挖掘、开箱与进入魔纹。
-- 车头模式无图时可前往海都市场板补满三张 G18，并按“解读、鞍囊、背包”整理。
+- 车头模式无图时可前往海都市场板补充两张 G18：第一张解读，第二张留在背包。
 - 在 Vault Oneiron 中自动处理潜网巡梦、宝箱和袋子。
 
 车头模式目前完整支持 G18。藏宝图位置由已有的自动标记坐标插件提供。
@@ -34,7 +34,6 @@ https://raw.githubusercontent.com/MusicYYin/DalamudPlugins/main/pluginmaster.jso
 ## 依赖
 
 - `vnavmesh`：必需
-- `Lifestream`：自动补图需要
 - `AE Assist V3`：可选
 - `BossMod Reborn`：可选
 

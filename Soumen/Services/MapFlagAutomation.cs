@@ -67,8 +67,9 @@ public sealed class MapFlagAutomation : IDisposable
     private bool partyTeleportSawLoading;
     private bool disposed;
     private uint pendingOwnFlagTerritory;
-    private int pendingOwnFlagRawX;
-    private int pendingOwnFlagRawY;
+    private uint pendingOwnFlagMap;
+    private float pendingOwnFlagMapX;
+    private float pendingOwnFlagMapY;
     private DateTime pendingOwnFlagExpiresUtc = DateTime.MinValue;
 
     public MapFlagAutomation(Configuration configuration, DiagnosticLogger diagnostics)
@@ -187,9 +188,10 @@ public sealed class MapFlagAutomation : IDisposable
 
         destinations[target.SenderKey] = target;
         pendingOwnFlagTerritory = target.TerritoryId;
-        pendingOwnFlagRawX = target.RawX;
-        pendingOwnFlagRawY = target.RawY;
-        pendingOwnFlagExpiresUtc = DateTime.UtcNow + TimeSpan.FromSeconds(8);
+        pendingOwnFlagMap = target.MapId;
+        pendingOwnFlagMapX = target.MapX;
+        pendingOwnFlagMapY = target.MapY;
+        pendingOwnFlagExpiresUtc = DateTime.UtcNow + TimeSpan.FromSeconds(15);
 
         if (configuration.OperatingMode == OperatingMode.Leader)
         {
@@ -340,10 +342,13 @@ public sealed class MapFlagAutomation : IDisposable
             : message.Sender.TextValue;
         var rawX = mapLink.RawX;
         var rawY = mapLink.RawY;
+        var localPlayerName = Plugin.ObjectTable.LocalPlayer?.Name.TextValue;
         var isOwnTreasure = DateTime.UtcNow <= pendingOwnFlagExpiresUtc
+            && string.Equals(sender.Name, localPlayerName, StringComparison.OrdinalIgnoreCase)
             && mapLink.TerritoryType.RowId == pendingOwnFlagTerritory
-            && Math.Abs(rawX - pendingOwnFlagRawX) <= 2
-            && Math.Abs(rawY - pendingOwnFlagRawY) <= 2;
+            && mapLink.Map.RowId == pendingOwnFlagMap
+            && Math.Abs(mapLink.XCoord - pendingOwnFlagMapX) <= NearbyMapCoordinateTolerance
+            && Math.Abs(mapLink.YCoord - pendingOwnFlagMapY) <= NearbyMapCoordinateTolerance;
         var target = new MapFlagTarget(
             ++serial,
             isOwnTreasure ? "我（藏宝图）" : senderText,
@@ -359,6 +364,18 @@ public sealed class MapFlagAutomation : IDisposable
             mapLink.PlaceName,
             DateTime.UtcNow,
             isOwnTreasure);
+
+        var existingOwnTreasure = isOwnTreasure
+            ? destinations.Values.FirstOrDefault(existing => existing.IsOwnTreasure && IsNearby(existing, target))
+            : null;
+        if (existingOwnTreasure != null)
+        {
+            pendingOwnFlagExpiresUtc = DateTime.MinValue;
+            diagnostics.Write(
+                "坐标",
+                $"自己的小队坐标与藏宝图旗标一致，已合并：map=({target.MapX:F1},{target.MapY:F1})。" );
+            return;
+        }
 
         var activeSenderUpdated = activeTarget != null && IsSameSender(activeTarget, target);
         foreach (var duplicate in destinations.Values
@@ -491,6 +508,19 @@ public sealed class MapFlagAutomation : IDisposable
         vnavmesh.Stop();
         externalPlugins.SetNavigating(false);
         ClearGameTarget();
+
+        var player = Plugin.ObjectTable.LocalPlayer;
+        if (player != null
+            && Plugin.ClientState.TerritoryType == target.TerritoryId
+            && HorizontalDistance(player.Position, target.ToWorld(player.Position.Y))
+                <= Math.Clamp(configuration.ArrivalTolerance, 3f, 30f))
+        {
+            diagnostics.Write(
+                "导航",
+                $"新坐标已在到达范围内，不再上坐骑或重新寻路：sender={target.Sender}，map=({target.MapX:F1},{target.MapY:F1})。" );
+            CompleteArrival();
+            return;
+        }
 
         if (paused)
         {
@@ -971,8 +1001,12 @@ public sealed class MapFlagAutomation : IDisposable
             }
         }
 
+        var alreadyNearBestCrystal = best != null
+            && Plugin.ClientState.TerritoryType == activeTarget.TerritoryId
+            && HorizontalDistance(playerPosition, best.Candidate.Position) <= 80f;
         var shouldTeleport = best != null
             && float.IsFinite(bestLength)
+            && !alreadyNearBestCrystal
             && (routePlan.Recovery || bestLength < directLength);
 
         Plugin.Log.Information(
@@ -984,7 +1018,7 @@ public sealed class MapFlagAutomation : IDisposable
             shouldTeleport);
         diagnostics.Write(
             "路线判断",
-            $"serial={activeTarget.Serial}，direct={directLength:F1}，best={best?.Candidate.Name ?? "无"}#{best?.Candidate.Id ?? 0}，aetheryteRoute={bestLength:F1}，recovery={routePlan.Recovery}，teleport={shouldTeleport}。");
+            $"serial={activeTarget.Serial}，direct={directLength:F1}，best={best?.Candidate.Name ?? "无"}#{best?.Candidate.Id ?? 0}，aetheryteRoute={bestLength:F1}，nearCrystal={alreadyNearBestCrystal}，recovery={routePlan.Recovery}，teleport={shouldTeleport}。");
 
         routePlan = null;
         if (shouldTeleport && best != null && BeginTeleport(best.Candidate))

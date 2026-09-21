@@ -8,10 +8,11 @@ public sealed class TreasureSackAutomation : IDisposable
 {
     internal const uint GoldSackDataId = 0x1EBE47;
     internal const uint SilverSackDataId = 0x1EBE48;
-    private const float CollectionRange = 0.15f;
+    private const float CollectionRange = 1.4f;
+    private const float PassedRange = 2.2f;
 
     private static readonly TimeSpan UpdateInterval = TimeSpan.FromMilliseconds(100);
-    private static readonly TimeSpan NavigationRetryInterval = TimeSpan.FromMilliseconds(800);
+    private static readonly TimeSpan NavigationRetryInterval = TimeSpan.FromMilliseconds(150);
 
     private readonly Configuration configuration;
     private readonly MapFlagAutomation mapAutomation;
@@ -21,6 +22,7 @@ public sealed class TreasureSackAutomation : IDisposable
     private DateTime nextUpdateUtc = DateTime.MinValue;
     private DateTime lastNavigationAttemptUtc = DateTime.MinValue;
     private nint activeSackAddress;
+    private readonly HashSet<nint> passedSacks = [];
     private bool ownsNavigation;
 
     public TreasureSackAutomation(
@@ -43,7 +45,9 @@ public sealed class TreasureSackAutomation : IDisposable
 
     internal static bool HasCollectibleSacks()
         => Plugin.ObjectTable.Any(obj =>
-            obj.Address != 0 && obj.BaseId is GoldSackDataId or SilverSackDataId);
+            obj.Address != 0
+            && obj.IsTargetable
+            && obj.BaseId is GoldSackDataId or SilverSackDataId);
 
     private void OnFrameworkUpdate(IFramework framework)
     {
@@ -72,12 +76,24 @@ public sealed class TreasureSackAutomation : IDisposable
         {
             StopOwnedNavigation();
             activeSackAddress = 0;
+            passedSacks.Clear();
             return;
         }
 
-        var sacks = Plugin.ObjectTable
-            .Where(obj => obj.Address != 0 && obj.BaseId is GoldSackDataId or SilverSackDataId)
+        var allSacks = Plugin.ObjectTable
+            .Where(obj => obj.Address != 0
+                && obj.IsTargetable
+                && obj.BaseId is GoldSackDataId or SilverSackDataId)
             .ToList();
+        if (allSacks.Count == 0)
+        {
+            StopOwnedNavigation();
+            activeSackAddress = 0;
+            passedSacks.Clear();
+            return;
+        }
+
+        var sacks = allSacks.Where(obj => !passedSacks.Contains(obj.Address)).ToList();
         if (sacks.Count == 0)
         {
             StopOwnedNavigation();
@@ -86,8 +102,7 @@ public sealed class TreasureSackAutomation : IDisposable
         }
 
         var sack = sacks
-            .OrderBy(obj => HorizontalDistanceSquared(player.Position, obj.Position)
-                * (obj.BaseId == GoldSackDataId ? 1f : 3f))
+            .OrderBy(obj => HorizontalDistanceSquared(player.Position, obj.Position))
             .First();
 
         if (activeSackAddress != sack.Address)
@@ -97,6 +112,17 @@ public sealed class TreasureSackAutomation : IDisposable
             diagnostics.Write(
                 "袋子",
                 $"发现{(sack.BaseId == GoldSackDataId ? "金" : "银")}袋，前往 ({sack.Position.X:F1},{sack.Position.Y:F1},{sack.Position.Z:F1})。");
+        }
+
+        if (HorizontalDistanceSquared(player.Position, sack.Position) <= PassedRange * PassedRange)
+        {
+            passedSacks.Add(sack.Address);
+            diagnostics.Write(
+                "袋子",
+                $"已经过{(sack.BaseId == GoldSackDataId ? "金" : "银")}袋位置，立即选择下一目标。" );
+            StopOwnedNavigation();
+            activeSackAddress = 0;
+            return;
         }
 
         if (!vnavmesh.IsInstalled || !vnavmesh.IsReady())

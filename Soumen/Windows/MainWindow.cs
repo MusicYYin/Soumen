@@ -57,6 +57,17 @@ public sealed class MainWindow : Window
         };
     }
 
+    public override void PreDraw()
+    {
+        ImGui.PushStyleColor(ImGuiCol.WindowBg, Theme.WindowBg);
+        ImGui.PushStyleColor(ImGuiCol.Text, Theme.Text);
+        ImGui.PushStyleColor(ImGuiCol.TableRowBg, Theme.TableRowBg);
+        ImGui.PushStyleColor(ImGuiCol.TableRowBgAlt, Theme.TableRowBgAlt);
+    }
+
+    public override void PostDraw()
+        => ImGui.PopStyleColor(4);
+
     public override void Draw()
     {
         PushThemeColors();
@@ -245,12 +256,9 @@ public sealed class MainWindow : Window
         {
             ImGui.Spacing();
             ImGui.SetCursorPosX(16f * scale);
-            var saddle = leaderAutomation.SaddlebagLoaded
-                ? leaderAutomation.SaddlebagMapCount.ToString()
-                : "未读取";
             ImGui.TextColored(
                 Muted,
-                $"{leaderAutomation.SelectedMapName}    已解读 {leaderAutomation.DecodedMapCount} · 背包 {leaderAutomation.InventoryMapCount} · 鞍囊 {saddle}");
+                $"{leaderAutomation.SelectedMapName}    已解读 {leaderAutomation.DecodedMapCount} · 背包 {leaderAutomation.InventoryMapCount}");
         }
 
         var target = automation.ActiveTarget;
@@ -336,7 +344,7 @@ public sealed class MainWindow : Window
 
             ImGui.TableNextColumn();
             var distance = automation.DistanceTo(target);
-            ImGui.TextColored(distance == null ? Muted : Vector4.One, distance == null ? "异地图" : $"{distance:F0}y");
+            ImGui.TextColored(distance == null ? Muted : Theme.Text, distance == null ? "异地图" : $"{distance:F0}y");
 
             ImGui.TableNextColumn();
             ImGui.PushID(target.Serial.GetHashCode());
@@ -363,8 +371,6 @@ public sealed class MainWindow : Window
                 automation.AeAssistInstalled ? "已连接" : "未加载（可选）");
             DrawDependencyRow("BossMod Reborn", automation.BossModRebornInstalled,
                 automation.BossModRebornInstalled ? "已连接" : "未加载（可选）");
-            DrawDependencyRow("Lifestream", leaderAutomation.LifestreamInstalled,
-                leaderAutomation.LifestreamInstalled ? "已连接" : "自动补图需要");
             ImGui.EndTable();
         }
     }
@@ -384,7 +390,7 @@ public sealed class MainWindow : Window
 
             ImGui.Spacing();
             DrawCheckbox(
-                "无图时前往海都市场板自动补满三张 G18",
+                "无图时前往海都市场板自动补满两张 G18",
                 nameof(configuration.AutoRestockLeaderMaps),
                 configuration.AutoRestockLeaderMaps,
                 value => configuration.AutoRestockLeaderMaps = value);
@@ -399,11 +405,7 @@ public sealed class MainWindow : Window
             }
             ImGui.EndDisabled();
 
-            ImGui.TextColored(Muted, "第一张解读，第二张放入陆行鸟鞍囊，第三张留在背包；只购买单张上架。" );
-            if (configuration.AutoRestockLeaderMaps && !leaderAutomation.LifestreamInstalled)
-            {
-                ImGui.TextColored(Warning, "自动补图需要安装并启用 Lifestream。" );
-            }
+            ImGui.TextColored(Muted, "第一张自动解读，第二张留在背包；只购买单张上架。" );
         }
 
         ImGui.Spacing();
@@ -440,6 +442,7 @@ public sealed class MainWindow : Window
                 configuration.AcceptPartyTeleportRequests = false;
                 configuration.Save();
             }
+            ImGui.TextColored(Muted, "自行传送时会拒绝队友发起的传送邀请。" );
 
             if (ImGui.RadioButton("接受队友传送邀请", configuration.AcceptPartyTeleportRequests))
             {
@@ -516,7 +519,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.2.1");
+        DrawSectionTitle("Soumen 0.4.3.0");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
@@ -986,10 +989,8 @@ public sealed class MainWindow : Window
         {
             LeaderAutomationState.Inactive => "车头未运行",
             LeaderAutomationState.LookingForMap => "检查藏宝图",
-            LeaderAutomationState.MovingMapFromSaddlebag => "读取鞍囊",
             LeaderAutomationState.RestockingTravel => "前往市场板",
             LeaderAutomationState.RestockingMarket => "购买藏宝图",
-            LeaderAutomationState.RestockingSaddlebag => "整理藏宝图",
             LeaderAutomationState.DecipheringMap or LeaderAutomationState.ConfirmingDecipher => "解读藏宝图",
             LeaderAutomationState.OpeningDecodedMap or LeaderAutomationState.WaitingForFlag => "读取坐标",
             LeaderAutomationState.Navigating => "前往藏宝图",
@@ -1043,15 +1044,23 @@ public sealed class MainWindow : Window
                 new Vector4(0.09f, 0.10f, 0.12f, 1f),
                 new Vector4(0.15f, 0.17f, 0.22f, 1f),
                 new Vector4(0.23f, 0.27f, 0.34f, 1f),
-                new Vector4(0.55f, 0.59f, 0.66f, 1f)),
+                new Vector4(0.55f, 0.59f, 0.66f, 1f),
+                new Vector4(0.025f, 0.03f, 0.04f, 0.98f),
+                new Vector4(0.91f, 0.93f, 0.96f, 1f),
+                new Vector4(0.05f, 0.06f, 0.08f, 0.42f),
+                new Vector4(0.08f, 0.09f, 0.12f, 0.46f)),
             UiTheme.Light => new(
-                new Vector4(0.47f, 0.72f, 0.93f, 1f),
-                new Vector4(0.19f, 0.28f, 0.36f, 0.96f),
-                new Vector4(0.20f, 0.23f, 0.27f, 0.96f),
-                new Vector4(0.27f, 0.31f, 0.36f, 1f),
-                new Vector4(0.28f, 0.50f, 0.68f, 1f),
-                new Vector4(0.36f, 0.61f, 0.80f, 1f),
-                new Vector4(0.78f, 0.82f, 0.88f, 1f)),
+                new Vector4(0.58f, 0.36f, 0.13f, 1f),
+                new Vector4(0.86f, 0.78f, 0.61f, 1f),
+                new Vector4(0.91f, 0.87f, 0.78f, 1f),
+                new Vector4(0.84f, 0.78f, 0.66f, 1f),
+                new Vector4(0.73f, 0.62f, 0.43f, 1f),
+                new Vector4(0.81f, 0.69f, 0.47f, 1f),
+                new Vector4(0.38f, 0.34f, 0.28f, 1f),
+                new Vector4(0.96f, 0.94f, 0.89f, 1f),
+                new Vector4(0.15f, 0.12f, 0.09f, 1f),
+                new Vector4(0.87f, 0.82f, 0.72f, 0.45f),
+                new Vector4(0.81f, 0.74f, 0.62f, 0.48f)),
             _ => new(
                 new Vector4(0.31f, 0.67f, 0.94f, 1f),
                 new Vector4(0.10f, 0.20f, 0.29f, 0.96f),
@@ -1059,7 +1068,11 @@ public sealed class MainWindow : Window
                 new Vector4(0.12f, 0.14f, 0.18f, 1f),
                 new Vector4(0.11f, 0.40f, 0.66f, 1f),
                 new Vector4(0.16f, 0.50f, 0.79f, 1f),
-                new Vector4(0.62f, 0.66f, 0.72f, 1f)),
+                new Vector4(0.62f, 0.66f, 0.72f, 1f),
+                new Vector4(0.055f, 0.065f, 0.085f, 0.98f),
+                new Vector4(0.93f, 0.95f, 0.98f, 1f),
+                new Vector4(0.08f, 0.10f, 0.13f, 0.42f),
+                new Vector4(0.11f, 0.14f, 0.18f, 0.46f)),
         };
 
     private void PushThemeColors()
@@ -1084,5 +1097,9 @@ public sealed class MainWindow : Window
         Vector4 PanelHovered,
         Vector4 Button,
         Vector4 ButtonHovered,
-        Vector4 Muted);
+        Vector4 Muted,
+        Vector4 WindowBg,
+        Vector4 Text,
+        Vector4 TableRowBg,
+        Vector4 TableRowBgAlt);
 }
