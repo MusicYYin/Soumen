@@ -404,7 +404,7 @@ public sealed class MainWindow : Window
         ImGui.SameLine();
         ImGui.TextColored(Muted, "右键加入");
 
-        var sourceNames = new[] { "本轮掉落", "G18 / 宝物库", "非暴信直魔晶石", "搜索全部" };
+        var sourceNames = new[] { "本轮掉落", "G18 / 宝物库", "常见普通材料", "非暴信直魔晶石", "搜索全部" };
         ImGui.SetNextItemWidth(-1f);
         if (ImGui.BeginCombo("##SoumenDiscardSourcePicker", sourceNames[discardSource]))
         {
@@ -429,7 +429,7 @@ public sealed class MainWindow : Window
             var emptyText = discardSource switch
             {
                 0 => "本轮获得过的物品会显示在这里。",
-                3 when discardSearch.Trim().Length < 2 => "输入至少两个字开始搜索。",
+                4 when discardSearch.Trim().Length < 2 => "输入至少两个字开始搜索。",
                 _ => "没有匹配的物品。",
             };
             ImGui.TextColored(Muted, emptyText);
@@ -483,12 +483,13 @@ public sealed class MainWindow : Window
         {
             0 => autoDiscardService.ObservedItems,
             1 => autoDiscardService.G18Items,
-            2 => autoDiscardService.NonPriorityMateria,
+            2 => autoDiscardService.CommonMaterials,
+            3 => autoDiscardService.NonPriorityMateria,
             _ => autoDiscardService.Search(discardSearch),
         };
 
         var query = discardSearch.Trim();
-        if (discardSource == 3 || string.IsNullOrWhiteSpace(query))
+        if (discardSource == 4 || string.IsNullOrWhiteSpace(query))
         {
             return items;
         }
