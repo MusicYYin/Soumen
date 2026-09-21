@@ -36,7 +36,7 @@ public sealed class TreasureDungeonAutomation : IDisposable
         var territory = Plugin.ClientState.TerritoryType;
         if (!configuration.Enabled
             || !configuration.AutoLeaveTreasureDungeon
-            || !IsTreasureDungeon())
+            || !TreasureContext.IsTreasureDungeon())
         {
             return;
         }
@@ -58,7 +58,7 @@ public sealed class TreasureDungeonAutomation : IDisposable
         if (!configuration.Enabled
             || !configuration.AutoLeaveTreasureDungeon
             || Plugin.ClientState.TerritoryType != pendingTerritory
-            || !IsInDuty())
+            || !TreasureContext.IsInDuty())
         {
             Reset();
             return;
@@ -91,25 +91,6 @@ public sealed class TreasureDungeonAutomation : IDisposable
         }
 
         TryLeaveDuty();
-    }
-
-    private static unsafe bool IsInDuty()
-    {
-        var gameMain = GameMain.Instance();
-        return gameMain != null && gameMain->CurrentContentFinderConditionId != 0;
-    }
-
-    private static unsafe bool IsTreasureDungeon()
-    {
-        var gameMain = GameMain.Instance();
-        var conditionId = gameMain == null ? 0 : gameMain->CurrentContentFinderConditionId;
-        if (conditionId == 0)
-        {
-            return false;
-        }
-
-        var condition = Plugin.DataManager.GetExcelSheet<ContentFinderCondition>().GetRow((uint)conditionId);
-        return condition.ContentType.RowId == 9;
     }
 
     private static unsafe bool HasPendingLootDistribution()

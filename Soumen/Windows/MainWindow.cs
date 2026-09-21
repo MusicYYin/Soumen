@@ -1,5 +1,6 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Textures;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Windowing;
 using Soumen.Models;
@@ -19,13 +20,21 @@ public sealed class MainWindow : Window
 
     private readonly Configuration configuration;
     private readonly MapFlagAutomation automation;
+    private readonly AutoDiscardService autoDiscardService;
     private readonly DiagnosticLogger diagnostics;
+    private string discardSearch = string.Empty;
+    private int discardSource;
 
-    public MainWindow(Configuration configuration, MapFlagAutomation automation, DiagnosticLogger diagnostics)
+    public MainWindow(
+        Configuration configuration,
+        MapFlagAutomation automation,
+        AutoDiscardService autoDiscardService,
+        DiagnosticLogger diagnostics)
         : base("Soumen##SoumenMain")
     {
         this.configuration = configuration;
         this.automation = automation;
+        this.autoDiscardService = autoDiscardService;
         this.diagnostics = diagnostics;
 
         SizeConstraints = new WindowSizeConstraints
@@ -54,6 +63,12 @@ public sealed class MainWindow : Window
         if (ImGui.BeginTabItem("设置"))
         {
             DrawSettings();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("自动丢弃"))
+        {
+            DrawAutoDiscard();
             ImGui.EndTabItem();
         }
 
@@ -303,6 +318,8 @@ public sealed class MainWindow : Window
         DrawSectionTitle("宝物库");
         DrawCheckbox("宝物库结束且无待掷点物品时自动离开", nameof(configuration.AutoLeaveTreasureDungeon), configuration.AutoLeaveTreasureDungeon,
             value => configuration.AutoLeaveTreasureDungeon = value);
+        DrawCheckbox("自动收集金袋和银袋", nameof(configuration.AutoCollectTreasureSacks), configuration.AutoCollectTreasureSacks,
+            value => configuration.AutoCollectTreasureSacks = value);
 
         ImGui.Spacing();
         DrawSectionTitle("开发者模式");
@@ -324,11 +341,201 @@ public sealed class MainWindow : Window
     private static void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.3.4");
+        DrawSectionTitle("Soumen 0.3.5");
         ImGui.TextWrapped("小队藏宝图坐标导航插件。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
         ImGui.TextColored(Muted, "命令：/soumen · on · off · pause · resume · stop");
+    }
+
+    private void DrawAutoDiscard()
+    {
+        ImGui.Spacing();
+        DrawSectionTitle("自动丢弃");
+
+        var enabled = configuration.AutoDiscardEnabled;
+        if (ImGui.Checkbox("只处理本轮挖宝新获得的物品", ref enabled))
+        {
+            configuration.AutoDiscardEnabled = enabled;
+            configuration.Save();
+        }
+
+        ImGui.TextColored(
+            Muted,
+            "到达藏宝图坐标或进入宝物库时开始记账；合并进旧堆的物品会先按新增数量拆分。没有空格时不会处理。" );
+        ImGui.Spacing();
+
+        var sessionColor = autoDiscardService.SessionActive ? Success : Muted;
+        ImGui.TextColored(sessionColor, autoDiscardService.SessionActive ? "● 正在记录" : "● 尚未开始本轮记录");
+        ImGui.SameLine();
+        ImGui.TextColored(Muted, autoDiscardService.StatusText);
+        ImGui.Spacing();
+
+        if (!ImGui.BeginTable("##SoumenDiscardColumns", 2, ImGuiTableFlags.SizingStretchProp))
+        {
+            return;
+        }
+
+        ImGui.TableSetupColumn("可选物品", ImGuiTableColumnFlags.WidthStretch, 1.25f);
+        ImGui.TableSetupColumn("自动丢弃", ImGuiTableColumnFlags.WidthStretch, 0.95f);
+        ImGui.TableNextRow();
+        ImGui.TableNextColumn();
+        DrawDiscardSourcePanel();
+        ImGui.TableNextColumn();
+        DrawDiscardSelectedPanel();
+        ImGui.EndTable();
+    }
+
+    private void DrawDiscardSourcePanel()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8f * scale);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, Panel);
+        ImGui.BeginChild("##SoumenDiscardSource", new Vector2(0f, 350f * scale), true);
+
+        ImGui.TextColored(Accent, "可选物品");
+        ImGui.SameLine();
+        ImGui.TextColored(Muted, "右键加入");
+
+        var sourceNames = new[] { "本轮掉落", "G18 / 宝物库", "非暴信直魔晶石", "搜索全部" };
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.BeginCombo("##SoumenDiscardSourcePicker", sourceNames[discardSource]))
+        {
+            for (var index = 0; index < sourceNames.Length; index++)
+            {
+                if (ImGui.Selectable(sourceNames[index], discardSource == index))
+                {
+                    discardSource = index;
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        ImGui.SetNextItemWidth(-1f);
+        ImGui.InputTextWithHint("##SoumenDiscardSearch", "搜索名称或物品 ID", ref discardSearch, 96);
+        ImGui.Separator();
+
+        var items = GetDiscardSourceItems();
+        if (items.Count == 0)
+        {
+            var emptyText = discardSource switch
+            {
+                0 => "本轮获得过的物品会显示在这里。",
+                3 when discardSearch.Trim().Length < 2 => "输入至少两个字开始搜索。",
+                _ => "没有匹配的物品。",
+            };
+            ImGui.TextColored(Muted, emptyText);
+        }
+        else
+        {
+            foreach (var item in items)
+            {
+                DrawDiscardItemRow(item, source: true);
+            }
+        }
+
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
+        ImGui.PopStyleVar();
+    }
+
+    private void DrawDiscardSelectedPanel()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8f * scale);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, Panel);
+        ImGui.BeginChild("##SoumenDiscardSelected", new Vector2(0f, 350f * scale), true);
+
+        ImGui.TextColored(Accent, "已选择");
+        ImGui.SameLine();
+        ImGui.TextColored(Muted, "右键移除");
+        ImGui.Separator();
+
+        var items = autoDiscardService.SelectedItems;
+        if (items.Count == 0)
+        {
+            ImGui.TextColored(Muted, "还没有添加物品。左侧右键即可加入。");
+        }
+        else
+        {
+            foreach (var item in items)
+            {
+                DrawDiscardItemRow(item, source: false);
+            }
+        }
+
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
+        ImGui.PopStyleVar();
+    }
+
+    private IReadOnlyList<DiscardCatalogItem> GetDiscardSourceItems()
+    {
+        IReadOnlyList<DiscardCatalogItem> items = discardSource switch
+        {
+            0 => autoDiscardService.ObservedItems,
+            1 => autoDiscardService.G18Items,
+            2 => autoDiscardService.NonPriorityMateria,
+            _ => autoDiscardService.Search(discardSearch),
+        };
+
+        var query = discardSearch.Trim();
+        if (discardSource == 3 || string.IsNullOrWhiteSpace(query))
+        {
+            return items;
+        }
+
+        return items
+            .Where(item => item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || item.EnglishName.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || item.ItemId.ToString().Contains(query, StringComparison.Ordinal))
+            .ToList();
+    }
+
+    private void DrawDiscardItemRow(DiscardCatalogItem item, bool source)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.PushID($"{(source ? "source" : "selected")}-{item.ItemId}");
+
+        var texture = Plugin.TextureProvider.GetFromGameIcon(new GameIconLookup(item.IconId)).GetWrapOrEmpty();
+        ImGui.Image(texture.Handle, new Vector2(24f, 24f) * scale);
+        ImGui.SameLine();
+
+        var selected = configuration.AutoDiscardItemIds.Contains(item.ItemId);
+        var pending = autoDiscardService.PendingQuantity(item.ItemId);
+        var label = pending > 0 ? $"{item.Name}  ·  本轮 +{pending}" : item.Name;
+        ImGui.Selectable($"{label}##row", selected && source, ImGuiSelectableFlags.None, new Vector2(0f, 24f * scale));
+
+        if (source && ImGui.BeginPopupContextItem("##add"))
+        {
+            ImGui.BeginDisabled(selected);
+            if (ImGui.MenuItem(selected ? "已在自动丢弃列表" : "加入自动丢弃"))
+            {
+                configuration.AutoDiscardItemIds.Add(item.ItemId);
+                configuration.Save();
+            }
+
+            ImGui.EndDisabled();
+            ImGui.EndPopup();
+        }
+        else if (!source && ImGui.BeginPopupContextItem("##remove"))
+        {
+            if (ImGui.MenuItem("从列表移除"))
+            {
+                configuration.AutoDiscardItemIds.Remove(item.ItemId);
+                configuration.Save();
+            }
+
+            ImGui.EndPopup();
+        }
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip($"{item.Name}\n物品 ID：{item.ItemId}\n{(source ? "右键加入" : "右键移除")}");
+        }
+
+        ImGui.PopID();
     }
 
     private static void DrawSectionTitle(string title)

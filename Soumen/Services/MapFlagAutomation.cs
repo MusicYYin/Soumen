@@ -109,6 +109,8 @@ public sealed class MapFlagAutomation : IDisposable
 
     public bool BossModRebornInstalled => externalPlugins.BossModRebornInstalled;
 
+    public event Action? DestinationReached;
+
     public void SetEnabled(bool enabled)
     {
         configuration.Enabled = enabled;
@@ -831,21 +833,30 @@ public sealed class MapFlagAutomation : IDisposable
         }
 
         var playerPosition = Plugin.ObjectTable.LocalPlayer?.Position ?? routePlan.Destination;
-        var directLength = GetPathLength(routePlan.DirectTask, playerPosition);
-        if (!float.IsFinite(directLength))
+        var directMeasurement = MeasurePath(routePlan.DirectTask, playerPosition, routePlan.Destination);
+        var directLength = directMeasurement.Length;
+        if (!directMeasurement.IsValid)
         {
             directLength = HorizontalDistance(playerPosition, routePlan.Destination);
+            diagnostics.Write(
+                "路线判断",
+                $"直达路线无效，改用直线距离 {directLength:F1}：{directMeasurement.Reason}。");
         }
 
         CandidatePath? best = null;
         var bestLength = float.PositiveInfinity;
         foreach (var candidate in routePlan.CandidatePaths)
         {
-            var length = GetPathLength(candidate.Task, candidate.Origin);
-            if (!float.IsFinite(length))
+            var measurement = MeasurePath(candidate.Task, candidate.Origin, routePlan.Destination);
+            var length = measurement.Length;
+            if (!measurement.IsValid)
             {
                 length = HorizontalDistance(candidate.Origin, routePlan.Destination);
             }
+
+            diagnostics.Write(
+                "路线判断",
+                $"候选 {candidate.Candidate.Name}#{candidate.Candidate.Id}：origin={FormatPoint(candidate.Origin)}，crystal={FormatPoint(candidate.Candidate.Position)}，path={(measurement.IsValid ? measurement.Length.ToString("F1") : "无效")}，fallback={length:F1}，endpoint={FormatPoint(measurement.Endpoint)}，reason={measurement.Reason}。");
 
             if (length < bestLength)
             {
@@ -1182,6 +1193,7 @@ public sealed class MapFlagAutomation : IDisposable
         routeComparedTargetSerial = null;
         externalPlugins.SetNavigating(false);
         SetState(AutomationState.Idle, "已到达，等待挖宝、战斗或新的小队坐标");
+        DestinationReached?.Invoke();
     }
 
     private void Fail(string reason)
@@ -1278,11 +1290,22 @@ public sealed class MapFlagAutomation : IDisposable
         return vnavmesh.ResolveFlagPoint() ?? vnavmesh.NearestPoint(fallback) ?? fallback;
     }
 
-    private static float GetPathLength(Task<List<Vector3>>? task, Vector3 origin)
+    private static PathMeasurement MeasurePath(Task<List<Vector3>>? task, Vector3 origin, Vector3 destination)
     {
-        if (task == null || !task.IsCompletedSuccessfully || task.Result.Count == 0)
+        if (task == null)
         {
-            return float.PositiveInfinity;
+            return new(float.PositiveInfinity, null, false, "未创建路线任务");
+        }
+
+        if (!task.IsCompletedSuccessfully)
+        {
+            return new(float.PositiveInfinity, null, false,
+                task.IsCompleted ? $"路线任务状态 {task.Status}" : "路线计算超时");
+        }
+
+        if (task.Result.Count == 0)
+        {
+            return new(float.PositiveInfinity, null, false, "路线没有返回路径点");
         }
 
         var length = 0f;
@@ -1293,8 +1316,24 @@ public sealed class MapFlagAutomation : IDisposable
             previous = waypoint;
         }
 
-        return length;
+        var endpointDistance = HorizontalDistance(previous, destination);
+        if (endpointDistance > 30f)
+        {
+            return new(length, previous, false, $"末端距目的地 {endpointDistance:F1}y");
+        }
+
+        var straightDistance = HorizontalDistance(origin, destination);
+        if (length + endpointDistance + 2f < straightDistance)
+        {
+            return new(length, previous, false,
+                $"路线长度 {length:F1}y 小于可达下限 {straightDistance - endpointDistance:F1}y");
+        }
+
+        return new(length, previous, true, $"有效，末端误差 {endpointDistance:F1}y");
     }
+
+    private static string FormatPoint(Vector3? point)
+        => point == null ? "无" : $"({point.Value.X:F1},{point.Value.Y:F1},{point.Value.Z:F1})";
 
     private static bool IsNearby(MapFlagTarget left, MapFlagTarget right)
         => left.TerritoryId == right.TerritoryId
@@ -1397,4 +1436,10 @@ public sealed class MapFlagAutomation : IDisposable
         DateTime StartedUtc,
         Task<List<Vector3>>? DirectTask,
         IReadOnlyList<CandidatePath> CandidatePaths);
+
+    private sealed record PathMeasurement(
+        float Length,
+        Vector3? Endpoint,
+        bool IsValid,
+        string Reason);
 }

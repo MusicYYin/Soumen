@@ -23,6 +23,8 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
     [PluginService] internal static IDutyState DutyState { get; private set; } = null!;
+    [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
+    [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     private readonly WindowSystem windowSystem = new("Soumen");
@@ -31,6 +33,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MapFlagAutomation automation;
     private readonly PartyTeleportService partyTeleportService;
     private readonly TreasureDungeonAutomation treasureDungeonAutomation;
+    private readonly TreasureSackAutomation treasureSackAutomation;
+    private readonly AutoDiscardService autoDiscardService;
     private readonly MainWindow mainWindow;
 
     public Plugin()
@@ -41,7 +45,9 @@ public sealed class Plugin : IDalamudPlugin
         automation = new MapFlagAutomation(configuration, diagnostics);
         partyTeleportService = new PartyTeleportService(configuration, automation.PrepareForPartyTeleport);
         treasureDungeonAutomation = new TreasureDungeonAutomation(configuration);
-        mainWindow = new MainWindow(configuration, automation, diagnostics);
+        treasureSackAutomation = new TreasureSackAutomation(configuration, automation, diagnostics);
+        autoDiscardService = new AutoDiscardService(configuration, automation, diagnostics);
+        mainWindow = new MainWindow(configuration, automation, autoDiscardService, diagnostics);
         windowSystem.AddWindow(mainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -62,6 +68,8 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi -= OpenMainUi;
         CommandManager.RemoveHandler(CommandName);
         windowSystem.RemoveAllWindows();
+        autoDiscardService.Dispose();
+        treasureSackAutomation.Dispose();
         treasureDungeonAutomation.Dispose();
         partyTeleportService.Dispose();
         automation.Dispose();
