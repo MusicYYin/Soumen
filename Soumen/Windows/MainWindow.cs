@@ -361,6 +361,8 @@ public sealed class MainWindow : Window
                 automation.AeAssistInstalled ? "已连接" : "未加载（可选）");
             DrawDependencyRow("BossMod Reborn", automation.BossModRebornInstalled,
                 automation.BossModRebornInstalled ? "已连接" : "未加载（可选）");
+            DrawDependencyRow("Lifestream", leaderAutomation.LifestreamInstalled,
+                leaderAutomation.LifestreamInstalled ? "已连接" : "自动补图需要");
             ImGui.EndTable();
         }
     }
@@ -376,6 +378,29 @@ public sealed class MainWindow : Window
             {
                 ImGui.Selectable($"G18 · {leaderAutomation.SelectedMapName}", true);
                 ImGui.EndCombo();
+            }
+
+            ImGui.Spacing();
+            DrawCheckbox(
+                "无图时前往海都市场板自动补满三张 G18",
+                nameof(configuration.AutoRestockLeaderMaps),
+                configuration.AutoRestockLeaderMaps,
+                value => configuration.AutoRestockLeaderMaps = value);
+
+            ImGui.BeginDisabled(!configuration.AutoRestockLeaderMaps);
+            var maximumUnitPrice = (int)configuration.LeaderMapMaximumUnitPrice;
+            ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
+            if (ImGui.InputInt("单张最高价格（Gil）", ref maximumUnitPrice, 1_000, 10_000))
+            {
+                configuration.LeaderMapMaximumUnitPrice = (uint)Math.Clamp(maximumUnitPrice, 1_000, 9_999_999);
+                configuration.Save();
+            }
+            ImGui.EndDisabled();
+
+            ImGui.TextColored(Muted, "第一张解读，第二张放入陆行鸟鞍囊，第三张留在背包；只购买单张上架。" );
+            if (configuration.AutoRestockLeaderMaps && !leaderAutomation.LifestreamInstalled)
+            {
+                ImGui.TextColored(Warning, "自动补图需要安装并启用 Lifestream。" );
             }
         }
 
@@ -489,7 +514,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.1");
+        DrawSectionTitle("Soumen 0.4.2");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
@@ -936,6 +961,9 @@ public sealed class MainWindow : Window
             LeaderAutomationState.Inactive => "车头未运行",
             LeaderAutomationState.LookingForMap => "检查藏宝图",
             LeaderAutomationState.MovingMapFromSaddlebag => "读取鞍囊",
+            LeaderAutomationState.RestockingTravel => "前往市场板",
+            LeaderAutomationState.RestockingMarket => "购买藏宝图",
+            LeaderAutomationState.RestockingSaddlebag => "整理藏宝图",
             LeaderAutomationState.DecipheringMap or LeaderAutomationState.ConfirmingDecipher => "解读藏宝图",
             LeaderAutomationState.OpeningDecodedMap or LeaderAutomationState.WaitingForFlag => "读取坐标",
             LeaderAutomationState.Navigating => "前往藏宝图",
