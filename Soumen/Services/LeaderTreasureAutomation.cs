@@ -1188,7 +1188,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
         }
 
         StopOwnedNavigation();
-        WriteNearbyDungeonObjects(dungeon);
         StatusText = dungeon.Style == TreasureDungeonStyle.Door
             ? "等待宝箱、可选门或下一场战斗"
             : "等待宝箱、转盘机关或下一场战斗";
@@ -1495,35 +1494,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private bool CanRetryDungeonObject(uint entityId, DateTime now, double retrySeconds)
         => !dungeonInteractionTimes.TryGetValue(entityId, out var last)
             || now - last >= TimeSpan.FromSeconds(retrySeconds);
-
-    private unsafe void WriteNearbyDungeonObjects(TreasureDungeonProfile dungeon)
-    {
-        var playerPosition = Plugin.ObjectTable.LocalPlayer?.Position;
-        if (playerPosition == null)
-        {
-            return;
-        }
-
-        var nearby = Plugin.ObjectTable
-            .Where(obj => obj.Address != 0
-                && obj.IsTargetable
-                && ((NativeGameObject*)obj.Address)->ObjectKind == ObjectKind.EventObj
-                && HorizontalDistance(playerPosition.Value, obj.Position) <= dungeon.ProgressionSearchRange)
-            .Select(obj => $"{obj.BaseId}:{obj.Name.TextValue}")
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(12)
-            .ToArray();
-        if (nearby.Length == 0)
-        {
-            return;
-        }
-
-        diagnostics.WriteThrottled(
-            $"dungeon-objects-{dungeon.TerritoryId}",
-            "宝物库",
-            $"当前可交互场景物体：{string.Join("；", nearby)}",
-            TimeSpan.FromSeconds(10));
-    }
 
     private unsafe bool HasTreasureEnemies()
         => Plugin.ObjectTable.Any(obj =>
