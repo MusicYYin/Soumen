@@ -176,10 +176,10 @@ public sealed class MainWindow : Window
         float scale)
     {
         var selected = configuration.OperatingMode == mode;
-        ImGui.PushStyleColor(ImGuiCol.Button, selected ? AccentSoft : Panel);
+        ImGui.PushStyleColor(ImGuiCol.Button, selected ? Theme.Button : Panel);
         ImGui.PushStyleColor(ImGuiCol.ButtonHovered,
             selected ? Theme.ButtonHovered : Theme.PanelHovered);
-        ImGui.PushStyleColor(ImGuiCol.Text, selected ? Accent : Muted);
+        ImGui.PushStyleColor(ImGuiCol.Text, selected ? Theme.Text : Muted);
         if (ImGui.Button($"{title}\n{subtitle}##{mode}", new Vector2(width, 54f * scale)))
         {
             automation.SetOperatingMode(mode);
@@ -367,6 +367,9 @@ public sealed class MainWindow : Window
         {
             DrawDependencyRow("vnavmesh", automation.VnavmeshInstalled,
                 automation.VnavmeshInstalled ? automation.VnavmeshReady ? "已就绪" : "生成网格中" : "未加载");
+            DrawLazyLootDependencyRow();
+            DrawDependencyRow("Globetrotter", automation.GlobetrotterInstalled,
+                automation.GlobetrotterInstalled ? "已连接" : "未加载");
             DrawDependencyRow("AE Assist", automation.AeAssistInstalled,
                 automation.AeAssistInstalled ? "已连接" : "未加载（可选）");
             DrawDependencyRow("BossMod Reborn", automation.BossModRebornInstalled,
@@ -380,7 +383,7 @@ public sealed class MainWindow : Window
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("车头模式", ImGuiTreeNodeFlags.DefaultOpen))
         {
-            ImGui.TextColored(Muted, "支持 G8–G18、特殊图、绿图与深层绿图；需要能自动创建旗标的插件。");
+            ImGui.TextColored(Muted, "支持 G8–G18、特殊图、绿图与深层绿图；Globetrotter 标记坐标，LazyLoot 处理掷点。");
             ImGui.SetNextItemWidth(360f * ImGuiHelpers.GlobalScale);
             if (ImGui.BeginCombo("藏宝图##LeaderTreasureMap", leaderAutomation.SelectedMapLabel))
             {
@@ -441,7 +444,7 @@ public sealed class MainWindow : Window
 
             var stuckSeconds = configuration.StuckSeconds;
             ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
-            if (ImGui.SliderFloat("卡住判定时间（秒）", ref stuckSeconds, 4f, 20f, "%.1f"))
+            if (ImGui.SliderFloat("卡住判定时间（秒）", ref stuckSeconds, 1f, 20f, "%.1f"))
             {
                 configuration.StuckSeconds = stuckSeconds;
                 configuration.Save();
@@ -449,7 +452,7 @@ public sealed class MainWindow : Window
 
             var tolerance = configuration.ArrivalTolerance;
             ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
-            if (ImGui.SliderFloat("到达判定（世界距离）", ref tolerance, 3f, 30f, "%.1f"))
+            if (ImGui.SliderFloat("到达判定（世界距离）", ref tolerance, 0f, 30f, "%.1f"))
             {
                 configuration.ArrivalTolerance = tolerance;
                 configuration.Save();
@@ -542,7 +545,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.5.0");
+        DrawSectionTitle("Soumen 0.4.5.1");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
@@ -974,6 +977,46 @@ public sealed class MainWindow : Window
         ImGui.TextUnformatted(name);
         ImGui.TableNextColumn();
         ImGui.TextColored(installed ? Success : Muted, $"● {status}");
+    }
+
+    private void DrawLazyLootDependencyRow()
+    {
+        ImGui.TableNextRow();
+        ImGui.TableNextColumn();
+        ImGui.TextUnformatted("LazyLoot");
+        ImGui.TableNextColumn();
+        ImGui.TextColored(automation.LazyLootInstalled ? Success : Muted,
+            automation.LazyLootInstalled ? "● 已连接" : "● 未加载");
+        ImGui.SameLine(0f, 10f * ImGuiHelpers.GlobalScale);
+
+        DrawLazyLootModeButton(LazyLootRollMode.Need, "需");
+        ImGui.SameLine(0f, 3f * ImGuiHelpers.GlobalScale);
+        DrawLazyLootModeButton(LazyLootRollMode.Greed, "贪");
+        ImGui.SameLine(0f, 3f * ImGuiHelpers.GlobalScale);
+        DrawLazyLootModeButton(LazyLootRollMode.Pass, "弃");
+    }
+
+    private void DrawLazyLootModeButton(LazyLootRollMode mode, string label)
+    {
+        var selected = configuration.LazyLootRollMode == mode;
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 4f * ImGuiHelpers.GlobalScale);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(7f, 2f) * ImGuiHelpers.GlobalScale);
+        ImGui.PushStyleColor(ImGuiCol.Button, selected ? Theme.Button : Panel);
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, Theme.ButtonHovered);
+        ImGui.PushStyleColor(ImGuiCol.Text, selected ? Theme.Text : Muted);
+        if (ImGui.SmallButton($"{label}##LazyLoot{mode}"))
+        {
+            automation.SetLazyLootRollMode(mode);
+        }
+        ImGui.PopStyleColor(3);
+        ImGui.PopStyleVar(2);
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(automation.LazyLootInstalled
+                ? $"LazyLoot 自动{label}"
+                : $"保存自动{label}设置；LazyLoot 加载后生效");
+        }
     }
 
     private void DrawCheckbox(string label, string id, bool current, Action<bool> update)
