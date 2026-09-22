@@ -19,7 +19,7 @@ public sealed class Configuration : IPluginConfiguration
     [JsonIgnore]
     private IDalamudPluginInterface? pluginInterface;
 
-    public int Version { get; set; } = 12;
+    public int Version { get; set; } = 13;
 
     public OperatingMode OperatingMode { get; set; } = OperatingMode.Follow;
 
@@ -28,6 +28,8 @@ public sealed class Configuration : IPluginConfiguration
     public bool AutoRestockLeaderMaps { get; set; } = false;
 
     public uint LeaderMapMaximumUnitPrice { get; set; } = 100000;
+
+    public uint LeaderMapMaximumRestockCost { get; set; } = 220000;
 
     public bool Enabled { get; set; } = false;
 
@@ -131,9 +133,10 @@ public sealed class Configuration : IPluginConfiguration
             configuration.LeaderTreasureMapItemId = TreasureMapCatalog.Default.ItemId;
         }
         configuration.LeaderMapMaximumUnitPrice = Math.Clamp(configuration.LeaderMapMaximumUnitPrice, 1_000u, 9_999_999u);
+        configuration.LeaderMapMaximumRestockCost = Math.Clamp(configuration.LeaderMapMaximumRestockCost, 2_000u, 19_999_998u);
         configuration.StuckSeconds = Math.Clamp(configuration.StuckSeconds, 1f, 30f);
         configuration.ArrivalTolerance = Math.Clamp(configuration.ArrivalTolerance, 0f, 30f);
-        configuration.Version = 12;
+        configuration.Version = 13;
         configuration.Save();
         return configuration;
     }
