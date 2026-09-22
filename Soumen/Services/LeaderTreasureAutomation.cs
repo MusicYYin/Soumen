@@ -205,7 +205,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
         {
             CancelRestock();
             SetState(LeaderAutomationState.Waiting,
-                SelectedMap.CanMarketRestock ? "自动补图已关闭" : "特殊藏宝图无法通过市场板补充");
+                SelectedMap.CanMarketRestock ? "自动补图已关闭" : "所选藏宝图无法通过市场板补充");
             return;
         }
 
@@ -323,10 +323,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        SetState(LeaderAutomationState.Waiting,
-            SelectedMap.IsSpecial
-                ? $"任务道具和背包中都没有可用的 {SelectedMapName}"
-                : $"任务道具和背包中都没有可用的 {SelectedMap.GradeLabel} 藏宝图");
+        SetState(LeaderAutomationState.Waiting, $"任务道具和背包中都没有可用的 {SelectedMapName}");
     }
 
     private void BeginDecipher(DateTime now)
@@ -348,7 +345,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
     {
         if (!SelectedMap.CanMarketRestock)
         {
-            SetState(LeaderAutomationState.Waiting, "特殊藏宝图无法通过市场板补充");
+            SetState(LeaderAutomationState.Waiting, "所选藏宝图无法通过市场板补充");
             return;
         }
 
@@ -442,7 +439,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
         if (marketBoard != null)
         {
             marketTravelStartedUtc = marketTravelStartedUtc == DateTime.MinValue ? now : marketTravelStartedUtc;
-            if (ApproachAndInteract(marketBoard, now, "海都市场布告板"))
+            if (ApproachAndOpenMarketBoard(marketBoard, now))
             {
                 StatusText = "已操作海都市场布告板，等待市场界面";
             }
@@ -624,12 +621,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
                 continue;
             }
 
-            var values = stackalloc AtkValue[2];
-            values[0].Type = AtkValueType.Bool;
-            values[0].Byte = 1;
-            values[1].Type = AtkValueType.Int;
-            values[1].Int = index;
-            addon->AtkUnitBase.FireCallback(2, values);
+            addon->AtkUnitBase.FireCallbackInt(index);
             decipherMenuSelectionIssued = true;
             pendingYesUntilUtc = now + TimeSpan.FromSeconds(6);
             SetState(LeaderAutomationState.ConfirmingDecipher, "正在确认解读藏宝图");
@@ -751,6 +743,18 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private unsafe void ProcessDigging(DateTime now)
     {
+        if (SelectedMap.DirectPortal)
+        {
+            var portal = FindOutdoorPortal();
+            if (portal != null)
+            {
+                portalSearchStartedUtc = now;
+                SetState(LeaderAutomationState.WaitingForLootOrPortal, "挖掘成功，正在前往传送魔纹");
+                ProcessPortalOrNextMap(now);
+                return;
+            }
+        }
+
         var chest = FindOutdoorChest(requireNew: true);
         if (chest != null)
         {
@@ -1126,6 +1130,63 @@ public sealed class LeaderTreasureAutomation : IDisposable
         return true;
     }
 
+    private unsafe bool ApproachAndOpenMarketBoard(IGameObject marketBoard, DateTime now)
+    {
+        var player = Plugin.ObjectTable.LocalPlayer;
+        if (player == null || marketBoard.Address == 0)
+        {
+            return false;
+        }
+
+        var distance = HorizontalDistance(player.Position, marketBoard.Position);
+        if (distance > ObjectApproachRange)
+        {
+            if (!vnavmesh.IsInstalled || !vnavmesh.IsReady())
+            {
+                StatusText = "等待 vnavmesh 就绪后前往海都市场布告板";
+                return false;
+            }
+
+            if (navigationObjectAddress != marketBoard.Address)
+            {
+                StopOwnedNavigation();
+                navigationObjectAddress = marketBoard.Address;
+            }
+
+            if ((!ownsNavigation || !vnavmesh.IsBusy())
+                && now - lastObjectNavigationUtc >= ObjectNavigationRetryInterval)
+            {
+                lastObjectNavigationUtc = now;
+                ownsNavigation = vnavmesh.MoveCloseTo(
+                    marketBoard.Position,
+                    fly: false,
+                    ObjectApproachRange - 0.4f);
+            }
+
+            StatusText = $"正在前往海都市场布告板 · {distance:F0}y";
+            return false;
+        }
+
+        StopOwnedNavigation();
+        if (now - lastInteractionUtc < InteractionRetryInterval)
+        {
+            return false;
+        }
+
+        lastInteractionUtc = now;
+        var targetSystem = TargetSystem.Instance();
+        if (targetSystem == null)
+        {
+            return false;
+        }
+
+        targetSystem->OpenObjectInteraction((NativeGameObject*)marketBoard.Address);
+        diagnostics.Write(
+            "自动补图",
+            $"已直接打开市场布告板：baseId={marketBoard.BaseId}，entity={GetEntityId(marketBoard)}，distance={distance:F1}，targetable={marketBoard.IsTargetable}。" );
+        return true;
+    }
+
     private unsafe void TryAcceptPendingYes(DateTime now)
     {
         if (now > pendingYesUntilUtc)
@@ -1280,7 +1341,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private IGameObject? FindMarketBoard()
         => Plugin.ObjectTable
-            .Where(obj => obj.Address != 0 && MarketBoardDataIds.Contains(obj.DataId))
+            .Where(obj => obj.Address != 0 && MarketBoardDataIds.Contains(obj.BaseId))
             .OrderBy(obj => HorizontalDistance(Plugin.ObjectTable.LocalPlayer?.Position ?? obj.Position, obj.Position))
             .FirstOrDefault();
 
