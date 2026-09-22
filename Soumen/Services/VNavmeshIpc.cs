@@ -15,6 +15,9 @@ public sealed class VNavmeshIpc
     private readonly ICallGateSubscriber<bool> pathfindInProgress;
     private readonly ICallGateSubscriber<Vector3?> flagToPoint;
     private readonly ICallGateSubscriber<Vector3, float, float, Vector3?> nearestPoint;
+    private readonly ICallGateSubscriber<List<Vector3>, bool, object> movePath;
+    private readonly ICallGateSubscriber<float> getPathTolerance;
+    private readonly ICallGateSubscriber<float, object> setPathTolerance;
     private readonly ICallGateSubscriber<object> stop;
 
     public VNavmeshIpc(IDalamudPluginInterface pluginInterface, DiagnosticLogger diagnostics)
@@ -32,6 +35,9 @@ public sealed class VNavmeshIpc
         flagToPoint = pluginInterface.GetIpcSubscriber<Vector3?>("vnavmesh.Query.Mesh.FlagToPoint");
         nearestPoint = pluginInterface.GetIpcSubscriber<Vector3, float, float, Vector3?>(
             "vnavmesh.Query.Mesh.NearestPoint");
+        movePath = pluginInterface.GetIpcSubscriber<List<Vector3>, bool, object>("vnavmesh.Path.MoveTo");
+        getPathTolerance = pluginInterface.GetIpcSubscriber<float>("vnavmesh.Path.GetTolerance");
+        setPathTolerance = pluginInterface.GetIpcSubscriber<float, object>("vnavmesh.Path.SetTolerance");
         stop = pluginInterface.GetIpcSubscriber<object>("vnavmesh.Path.Stop");
     }
 
@@ -122,6 +128,58 @@ public sealed class VNavmeshIpc
                 $"计算路线 {Format(from)} -> {Format(to)}，fly={fly}",
                 exception);
             return null;
+        }
+    }
+
+    public bool MoveAlongPath(IReadOnlyList<Vector3> waypoints, bool fly)
+    {
+        if (waypoints.Count == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            movePath.InvokeAction(waypoints.ToList(), fly);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            diagnostics.WriteException("vnavmesh", $"开始连续路线，共 {waypoints.Count} 个路径点", exception);
+            return false;
+        }
+    }
+
+    public float? GetPathTolerance()
+    {
+        try
+        {
+            return getPathTolerance.InvokeFunc();
+        }
+        catch (Exception exception)
+        {
+            diagnostics.WriteThrottled(
+                "vnav-tolerance-get",
+                "vnavmesh",
+                $"读取路径容差失败：{exception.Message}",
+                TimeSpan.FromSeconds(10));
+            return null;
+        }
+    }
+
+    public void SetPathTolerance(float tolerance)
+    {
+        try
+        {
+            setPathTolerance.InvokeAction(tolerance);
+        }
+        catch (Exception exception)
+        {
+            diagnostics.WriteThrottled(
+                "vnav-tolerance-set",
+                "vnavmesh",
+                $"设置路径容差失败：{exception.Message}",
+                TimeSpan.FromSeconds(10));
         }
     }
 
