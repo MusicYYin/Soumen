@@ -119,7 +119,26 @@ public sealed class MapFlagAutomation : IDisposable
 
     public bool BossModRebornInstalled => externalPlugins.BossModRebornInstalled;
 
+    public bool LazyLootInstalled => externalPlugins.LazyLootInstalled;
+
+    public bool GlobetrotterInstalled => externalPlugins.GlobetrotterInstalled;
+
     public event Action<MapFlagTarget>? DestinationReached;
+
+    public void SetLazyLootRollMode(LazyLootRollMode mode)
+    {
+        if (configuration.LazyLootRollMode == mode)
+        {
+            return;
+        }
+
+        configuration.LazyLootRollMode = mode;
+        configuration.Save();
+        if (configuration.Enabled)
+        {
+            externalPlugins.ApplyLazyLootRollMode();
+        }
+    }
 
     public void SetOperatingMode(OperatingMode mode)
     {
@@ -520,7 +539,7 @@ public sealed class MapFlagAutomation : IDisposable
         if (player != null
             && Plugin.ClientState.TerritoryType == target.TerritoryId
             && HorizontalDistance(player.Position, GetResolvedWorldPosition(target, player.Position.Y))
-                <= Math.Clamp(configuration.ArrivalTolerance, 3f, 30f))
+                <= ArrivalThreshold())
         {
             diagnostics.Write(
                 "导航",
@@ -732,7 +751,7 @@ public sealed class MapFlagAutomation : IDisposable
         }
 
         var distance = HorizontalDistance(player.Position, destination.Value);
-        if (distance <= Math.Clamp(configuration.ArrivalTolerance, 3f, 30f))
+        if (distance <= ArrivalThreshold())
         {
             vnavmesh.Stop();
             externalPlugins.SetNavigating(false);
@@ -788,7 +807,7 @@ public sealed class MapFlagAutomation : IDisposable
             return false;
         }
 
-        if ((now - lastProgressUtc).TotalSeconds < Math.Clamp(configuration.StuckSeconds, 4f, 30f))
+        if ((now - lastProgressUtc).TotalSeconds < Math.Clamp(configuration.StuckSeconds, 1f, 30f))
         {
             return false;
         }
@@ -891,17 +910,18 @@ public sealed class MapFlagAutomation : IDisposable
 
         SetMapFlag(activeTarget);
         var fly = configuration.UseFlight && IsMounted();
+        var navigationRange = Math.Clamp(configuration.ArrivalTolerance / 2f, 0.25f, 8f);
         var started = vnavmesh.MoveCloseTo(
             destination.Value,
             fly,
-            Math.Clamp(configuration.ArrivalTolerance / 2f, 2f, 8f));
+            navigationRange);
 
         lastNavigationAttemptUtc = DateTime.UtcNow;
         if (!started)
         {
             diagnostics.Write(
                 "导航",
-                $"vnavmesh 拒绝开始导航：destination=({destination.Value.X:F1},{destination.Value.Y:F1},{destination.Value.Z:F1})，fly={fly}，range={Math.Clamp(configuration.ArrivalTolerance / 2f, 2f, 8f):F1}；{BuildDiagnosticContext()}");
+                $"vnavmesh 拒绝开始导航：destination=({destination.Value.X:F1},{destination.Value.Y:F1},{destination.Value.Z:F1})，fly={fly}，range={navigationRange:F1}；{BuildDiagnosticContext()}");
             return false;
         }
 
@@ -1513,6 +1533,9 @@ public sealed class MapFlagAutomation : IDisposable
             ConditionFlag.WatchingCutscene,
             ConditionFlag.WatchingCutscene78,
             ConditionFlag.LoggingOut);
+
+    private float ArrivalThreshold()
+        => Math.Max(Math.Clamp(configuration.ArrivalTolerance, 0f, 30f), 0.25f);
 
     private static float HorizontalDistance(Vector3 left, Vector3 right)
     {
