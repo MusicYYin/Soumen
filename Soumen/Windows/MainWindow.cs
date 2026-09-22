@@ -380,11 +380,13 @@ public sealed class MainWindow : Window
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("车头模式", ImGuiTreeNodeFlags.DefaultOpen))
         {
-            ImGui.TextColored(Muted, "支持 G8–G18；需要能在打开藏宝图时自动创建旗标的插件。");
+            ImGui.TextColored(Muted, "支持 G8–G18 与特殊藏宝图；需要能在打开藏宝图时自动创建旗标的插件。");
             ImGui.SetNextItemWidth(360f * ImGuiHelpers.GlobalScale);
             if (ImGui.BeginCombo("藏宝图##LeaderTreasureMap", leaderAutomation.SelectedMapLabel))
             {
-                foreach (var profile in TreasureMapCatalog.Profiles.OrderByDescending(profile => profile.Grade))
+                foreach (var profile in TreasureMapCatalog.Profiles
+                             .OrderBy(profile => profile.IsSpecial)
+                             .ThenByDescending(profile => profile.Grade))
                 {
                     var selected = profile.ItemId == leaderAutomation.SelectedMap.ItemId;
                     var name = GetItemName(profile.ItemId, $"{profile.GradeLabel} 藏宝图");
@@ -403,13 +405,16 @@ public sealed class MainWindow : Window
             }
 
             ImGui.Spacing();
+            ImGui.BeginDisabled(!leaderAutomation.SelectedMap.CanMarketRestock);
             DrawCheckbox(
                 $"无图时前往海都市场板自动补满两张 {leaderAutomation.SelectedMap.GradeLabel}",
                 nameof(configuration.AutoRestockLeaderMaps),
                 configuration.AutoRestockLeaderMaps,
                 value => configuration.AutoRestockLeaderMaps = value);
+            ImGui.EndDisabled();
 
-            ImGui.BeginDisabled(!configuration.AutoRestockLeaderMaps);
+            ImGui.BeginDisabled(!configuration.AutoRestockLeaderMaps
+                || !leaderAutomation.SelectedMap.CanMarketRestock);
             var maximumUnitPrice = (int)configuration.LeaderMapMaximumUnitPrice;
             ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
             if (ImGui.InputInt("单张最高价格（Gil）", ref maximumUnitPrice, 1_000, 10_000))
@@ -419,7 +424,9 @@ public sealed class MainWindow : Window
             }
             ImGui.EndDisabled();
 
-            ImGui.TextColored(Muted, "第一张自动解读，第二张留在背包；只购买单张上架。" );
+            ImGui.TextColored(Muted, leaderAutomation.SelectedMap.CanMarketRestock
+                ? "第一张自动解读，第二张留在背包；只购买单张上架。"
+                : "特殊藏宝图不可交易；会按堆叠数量逐张解读和使用。" );
         }
 
         ImGui.Spacing();
