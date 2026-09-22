@@ -1,4 +1,5 @@
 using System.Numerics;
+using Dalamud.Game;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Memory;
@@ -20,10 +21,6 @@ namespace Soumen.Services;
 
 public sealed class LeaderTreasureAutomation : IDisposable
 {
-    private const uint GargantuaskinMapItemId = 46185;
-    private const uint GargantuaskinDecodedEventItemId = 2003785;
-    private const uint VaultOneironTerritoryId = 1279;
-    private const uint HypnoslotNameRowId = 2014790;
     private const ushort LimsaLominsaLowerDecksTerritoryId = 129;
     private static readonly uint[] MarketBoardDataIds = [2000402, 2000442];
     private const float ObjectApproachRange = 3.2f;
@@ -41,6 +38,17 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private static readonly TimeSpan ActionRetryInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan InteractionRetryInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan ObjectNavigationRetryInterval = TimeSpan.FromMilliseconds(800);
+    private static readonly TimeSpan HigherLowerRetryInterval = TimeSpan.FromMilliseconds(450);
+    private static readonly (bool UpdateState, int Argument)[] HigherLowerCloseAttempts =
+    [
+        (true, 1),
+        (false, -2),
+        (true, 1),
+        (true, -2),
+        (true, 1),
+        (true, -1),
+        (false, -1),
+    ];
 
     private readonly Configuration configuration;
     private readonly MapFlagAutomation mapAutomation;
@@ -48,7 +56,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private readonly VNavmeshIpc vnavmesh;
     private readonly TeleportService teleportService;
     private readonly MarketMapPurchaseService marketPurchase;
-    private readonly string hypnoslotName;
+    private readonly Dictionary<uint, uint> progressionObjectBaseIds = [];
+    private readonly Dictionary<uint, string> progressionObjectNames = [];
 
     private DateTime nextUpdateUtc = DateTime.MinValue;
     private DateTime stateEnteredUtc = DateTime.UtcNow;
@@ -62,6 +71,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private DateTime restockTeleportSubmittedUtc = DateTime.MinValue;
     private DateTime marketTravelStartedUtc = DateTime.MinValue;
     private DateTime nextRestockRetryUtc = DateTime.MinValue;
+    private DateTime nextHigherLowerActionUtc = DateTime.MinValue;
     private readonly HashSet<uint> preDigChestIds = [];
     private readonly Dictionary<uint, DateTime> dungeonInteractionTimes = [];
     private MapFlagTarget? currentOwnTarget;
@@ -71,6 +81,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private bool ownsNavigation;
     private bool decipherMenuSelectionIssued;
     private int decipherInventoryCountBefore;
+    private int higherLowerAttemptIndex;
     private bool preferInventoryMap;
     private RestockStage restockStage;
     private bool disposed;
@@ -86,7 +97,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
         vnavmesh = new VNavmeshIpc(Plugin.PluginInterface, diagnostics);
         teleportService = new TeleportService(diagnostics);
         marketPurchase = new MarketMapPurchaseService(diagnostics);
-        hypnoslotName = LoadHypnoslotName();
+        LoadDungeonProgressionObjects();
         mapAutomation.DestinationReached += OnDestinationReached;
         Plugin.Framework.Update += OnFrameworkUpdate;
     }
@@ -97,9 +108,25 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     public string SelectedMapName => GetSelectedMapName();
 
+    public TreasureMapProfile SelectedMap => TreasureMapCatalog.Get(configuration.LeaderTreasureMapItemId);
+
+    public string SelectedMapLabel => $"{SelectedMap.GradeLabel} · {SelectedMapName}";
+
     public int DecodedMapCount { get; private set; }
 
     public int InventoryMapCount { get; private set; }
+
+    public void SelectMap(uint itemId)
+    {
+        if (!TreasureMapCatalog.Contains(itemId) || configuration.LeaderTreasureMapItemId == itemId)
+        {
+            return;
+        }
+
+        configuration.LeaderTreasureMapItemId = itemId;
+        configuration.Save();
+        Restart();
+    }
 
     public void Dispose()
     {
@@ -188,7 +215,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
                 SetState(LeaderAutomationState.Dungeon, "已进入宝物库");
             }
 
-            if (Plugin.ClientState.TerritoryType == VaultOneironTerritoryId)
+            if (TreasureDungeonCatalog.TryGet(Plugin.ClientState.TerritoryType, out _))
             {
                 ProcessDungeon(now);
             }
@@ -271,7 +298,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
         if (!preferInventoryMap && DecodedMapCount > 0)
         {
             ClearMapFlag();
-            SetState(LeaderAutomationState.OpeningDecodedMap, "正在使用已解读的 G18 藏宝图");
+            SetState(LeaderAutomationState.OpeningDecodedMap, $"正在使用已解读的 {SelectedMap.GradeLabel} 藏宝图");
             lastActionUtc = DateTime.MinValue;
             return;
         }
@@ -294,7 +321,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        SetState(LeaderAutomationState.Waiting, "任务道具和背包中都没有可用的 G18 藏宝图");
+        SetState(LeaderAutomationState.Waiting, $"任务道具和背包中都没有可用的 {SelectedMap.GradeLabel} 藏宝图");
     }
 
     private void BeginDecipher(DateTime now)
@@ -317,8 +344,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
         StopOwnedNavigation();
         restockStage = RestockStage.BuyFirst;
         marketPurchase.Reset();
-        diagnostics.Write("自动补图", "未找到可继续使用的 G18，开始前往海都补充两张藏宝图。" );
-        PrepareRestockTravel("正在前往海都市场板购买第一张 G18");
+        diagnostics.Write("自动补图", $"未找到可继续使用的 {SelectedMap.GradeLabel}，开始前往海都补充两张藏宝图。" );
+        PrepareRestockTravel($"正在前往海都市场板购买第一张 {SelectedMap.GradeLabel}");
     }
 
     private void ProcessRestockingTravel(DateTime now)
@@ -473,7 +500,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
                 marketPurchase.Reset();
                 restockStage = RestockStage.DecipherFirst;
                 lastActionUtc = DateTime.MinValue;
-                SetState(LeaderAutomationState.LookingForMap, "第一张 G18 已购买，准备解读");
+                SetState(LeaderAutomationState.LookingForMap, $"第一张 {SelectedMap.GradeLabel} 已购买，准备解读");
                 break;
 
             case RestockStage.BuySecond:
@@ -485,7 +512,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private void ResumeRestockAfterDecipher()
     {
         restockStage = RestockStage.BuySecond;
-        PrepareRestockTravel("第一张 G18 已解读，返回市场板购买第二张");
+        PrepareRestockTravel($"第一张 {SelectedMap.GradeLabel} 已解读，返回市场板购买第二张");
     }
 
     private void StartMarketPurchase()
@@ -499,9 +526,9 @@ public sealed class LeaderTreasureAutomation : IDisposable
             LeaderAutomationState.RestockingMarket,
             restockStage switch
             {
-                RestockStage.BuyFirst => "正在购买第一张 G18",
-                RestockStage.BuySecond => "正在购买第二张 G18",
-                _ => "正在购买 G18",
+                RestockStage.BuyFirst => $"正在购买第一张 {SelectedMap.GradeLabel}",
+                RestockStage.BuySecond => $"正在购买第二张 {SelectedMap.GradeLabel}",
+                _ => $"正在购买 {SelectedMap.GradeLabel}",
             });
     }
 
@@ -524,8 +551,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
         nextRestockRetryUtc = DateTime.MinValue;
         lastActionUtc = DateTime.UtcNow;
         preferInventoryMap = false;
-        diagnostics.Write("自动补图", $"两张 G18 已补充完成；第二张单价 {unitPrice:N0} Gil。" );
-        SetState(LeaderAutomationState.LookingForMap, "两张 G18 已补满，准备使用已解读藏宝图");
+        diagnostics.Write("自动补图", $"两张 {SelectedMap.GradeLabel} 已补充完成；第二张单价 {unitPrice:N0} Gil。" );
+        SetState(LeaderAutomationState.LookingForMap, $"两张 {SelectedMap.GradeLabel} 已补满，准备使用已解读藏宝图");
     }
 
     private void CancelRestock()
@@ -640,15 +667,15 @@ public sealed class LeaderTreasureAutomation : IDisposable
         lastActionUtc = now;
         var actionManager = ActionManager.Instance();
         if (actionManager == null
-            || actionManager->GetActionStatus(ActionType.EventItem, GargantuaskinDecodedEventItemId) != 0)
+            || actionManager->GetActionStatus(ActionType.EventItem, SelectedMap.DecodedEventItemId) != 0)
         {
             StatusText = "等待已解读藏宝图可使用";
             return;
         }
 
-        actionManager->UseAction(ActionType.EventItem, GargantuaskinDecodedEventItemId);
+        actionManager->UseAction(ActionType.EventItem, SelectedMap.DecodedEventItemId);
         SetState(LeaderAutomationState.WaitingForFlag, "已打开藏宝图，等待坐标插件创建旗标");
-        diagnostics.Write("车头", $"已使用已解读藏宝图 #{GargantuaskinDecodedEventItemId}，等待新旗标。" );
+        diagnostics.Write("车头", $"已使用已解读藏宝图 #{SelectedMap.DecodedEventItemId}，等待新旗标。" );
     }
 
     private void ProcessWaitingForFlag(DateTime now)
@@ -890,6 +917,11 @@ public sealed class LeaderTreasureAutomation : IDisposable
     {
         TryAcceptPendingYes(now);
 
+        if (TryHandleHigherLower(now))
+        {
+            return;
+        }
+
         if (Plugin.Condition[ConditionFlag.InCombat] || HasTreasureEnemies())
         {
             StopOwnedNavigation();
@@ -923,21 +955,106 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        var hypnoslot = FindHypnoslot(now);
-        if (hypnoslot != null)
+        var territoryId = Plugin.ClientState.TerritoryType;
+        if (!TreasureDungeonCatalog.TryGet(territoryId, out var dungeon))
         {
-            if (ApproachAndInteract(hypnoslot, now, "潜网巡梦"))
+            StopOwnedNavigation();
+            StatusText = "当前宝物库尚未加入车头自动流程";
+            return;
+        }
+
+        var progression = FindDungeonProgressionObject(dungeon, now);
+        if (progression != null)
+        {
+            var label = progressionObjectNames.GetValueOrDefault(territoryId)
+                ?? (dungeon.Style == TreasureDungeonStyle.Door ? "宝物库门" : "转盘机关");
+            if (ApproachAndInteract(progression, now, label))
             {
-                dungeonInteractionTimes[GetEntityId(hypnoslot)] = now;
+                dungeonInteractionTimes[GetEntityId(progression)] = now;
                 pendingYesUntilUtc = now + TimeSpan.FromSeconds(8);
-                StatusText = "已调查潜网巡梦，等待下一轮";
+                StatusText = dungeon.Style == TreasureDungeonStyle.Door
+                    ? "已选择宝物库门，等待结果"
+                    : "已启动转盘机关，等待下一轮";
             }
 
             return;
         }
 
         StopOwnedNavigation();
-        StatusText = "等待潜网巡梦、宝箱或下一场战斗";
+        StatusText = dungeon.Style == TreasureDungeonStyle.Door
+            ? "等待宝箱、可选门或下一场战斗"
+            : "等待宝箱、转盘机关或下一场战斗";
+    }
+
+    private unsafe bool TryHandleHigherLower(DateTime now)
+    {
+        var manager = RaptureAtkUnitManager.Instance();
+        if (manager == null)
+        {
+            return false;
+        }
+
+        var higherLower = manager->GetAddonByName("TreasureHighLow");
+        var challenge = manager->GetAddonByName("_NotificationChallenge");
+        var higherLowerVisible = higherLower != null && higherLower->IsVisible;
+        var challengeVisible = challenge != null && challenge->IsVisible;
+        if (!higherLowerVisible && !challengeVisible)
+        {
+            higherLowerAttemptIndex = 0;
+            nextHigherLowerActionUtc = DateTime.MinValue;
+            return false;
+        }
+
+        StopOwnedNavigation();
+        StatusText = "正在直接领取比大小宝箱";
+        if (now < nextHigherLowerActionUtc)
+        {
+            return true;
+        }
+
+        nextHigherLowerActionUtc = now + HigherLowerRetryInterval;
+        if (!higherLowerVisible)
+        {
+            FireAddonCallback("_Notification", false, true, 0, 1);
+            return true;
+        }
+
+        var attempt = HigherLowerCloseAttempts[higherLowerAttemptIndex % HigherLowerCloseAttempts.Length];
+        higherLowerAttemptIndex++;
+        FireAddonCallback("TreasureHighLow", true, attempt.UpdateState, attempt.Argument);
+        return true;
+    }
+
+    private static unsafe bool FireAddonCallback(
+        string addonName,
+        bool requireVisible,
+        bool updateState,
+        params int[] arguments)
+    {
+        try
+        {
+            var manager = RaptureAtkUnitManager.Instance();
+            var addon = manager == null ? null : manager->GetAddonByName(addonName);
+            if (addon == null || (requireVisible && !addon->IsVisible))
+            {
+                return false;
+            }
+
+            var values = stackalloc AtkValue[arguments.Length];
+            for (var index = 0; index < arguments.Length; index++)
+            {
+                values[index].Type = AtkValueType.Int;
+                values[index].Int = arguments[index];
+            }
+
+            addon->FireCallback((uint)arguments.Length, values, updateState);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Warning(exception, "Failed to handle treasure Higher/Lower addon {AddonName}.", addonName);
+            return false;
+        }
     }
 
     private unsafe bool ApproachAndInteract(IGameObject gameObject, DateTime now, string label)
@@ -1027,7 +1144,9 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return null;
         }
 
-        var targetPosition = currentOwnTarget.ToWorld(Plugin.ObjectTable.LocalPlayer?.Position.Y ?? 0f);
+        var targetPosition = mapAutomation.GetResolvedWorldPosition(
+            currentOwnTarget,
+            Plugin.ObjectTable.LocalPlayer?.Position.Y ?? 0f);
         return Plugin.ObjectTable
             .Where(obj => IsTreasureHuntObject(obj, ObjectKind.Treasure)
                 && obj.IsTargetable
@@ -1055,7 +1174,9 @@ public sealed class LeaderTreasureAutomation : IDisposable
         var origin = trackedChestPosition;
         if (origin == Vector3.Zero && currentOwnTarget != null)
         {
-            origin = currentOwnTarget.ToWorld(Plugin.ObjectTable.LocalPlayer?.Position.Y ?? 0f);
+            origin = mapAutomation.GetResolvedWorldPosition(
+                currentOwnTarget,
+                Plugin.ObjectTable.LocalPlayer?.Position.Y ?? 0f);
         }
 
         return Plugin.ObjectTable
@@ -1075,15 +1196,33 @@ public sealed class LeaderTreasureAutomation : IDisposable
             .OrderBy(obj => HorizontalDistance(Plugin.ObjectTable.LocalPlayer?.Position ?? obj.Position, obj.Position))
             .FirstOrDefault();
 
-    private unsafe IGameObject? FindHypnoslot(DateTime now)
+    private unsafe IGameObject? FindDungeonProgressionObject(TreasureDungeonProfile dungeon, DateTime now)
         => Plugin.ObjectTable
             .Where(obj => obj.Address != 0
                 && obj.IsTargetable
                 && ((NativeGameObject*)obj.Address)->ObjectKind == ObjectKind.EventObj
-                && string.Equals(obj.Name.TextValue, hypnoslotName, StringComparison.OrdinalIgnoreCase)
+                && HorizontalDistance(Plugin.ObjectTable.LocalPlayer?.Position ?? obj.Position, obj.Position) <= 80f
+                && IsDungeonProgressionObject(dungeon, obj)
                 && CanRetryDungeonObject(GetEntityId(obj), now))
             .OrderBy(obj => HorizontalDistance(Plugin.ObjectTable.LocalPlayer?.Position ?? obj.Position, obj.Position))
             .FirstOrDefault();
+
+    private bool IsDungeonProgressionObject(TreasureDungeonProfile dungeon, IGameObject gameObject)
+    {
+        if (progressionObjectBaseIds.TryGetValue(dungeon.TerritoryId, out var baseId)
+            && gameObject.BaseId == baseId)
+        {
+            return true;
+        }
+
+        var localizedName = progressionObjectNames.GetValueOrDefault(dungeon.TerritoryId);
+        return (!string.IsNullOrWhiteSpace(localizedName)
+                && string.Equals(gameObject.Name.TextValue, localizedName, StringComparison.OrdinalIgnoreCase))
+            || string.Equals(
+                gameObject.Name.TextValue,
+                dungeon.ProgressionObjectName,
+                StringComparison.OrdinalIgnoreCase);
+    }
 
     private bool CanRetryDungeonObject(uint entityId, DateTime now)
         => !dungeonInteractionTimes.TryGetValue(entityId, out var last)
@@ -1194,7 +1333,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        DecodedMapCount = CountItem(manager, InventoryType.KeyItems, GargantuaskinDecodedEventItemId);
+        DecodedMapCount = CountItem(manager, InventoryType.KeyItems, SelectedMap.DecodedEventItemId);
         InventoryMapCount = MainInventories.Sum(type => CountItem(manager, type, configuration.LeaderTreasureMapItemId));
     }
 
@@ -1225,11 +1364,11 @@ public sealed class LeaderTreasureAutomation : IDisposable
         {
             var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(configuration.LeaderTreasureMapItemId);
             var name = item.Name.ToString();
-            return string.IsNullOrWhiteSpace(name) ? "G18 藏宝图" : name;
+            return string.IsNullOrWhiteSpace(name) ? $"{SelectedMap.GradeLabel} 藏宝图" : name;
         }
         catch
         {
-            return "G18 藏宝图";
+            return $"{SelectedMap.GradeLabel} 藏宝图";
         }
     }
 
@@ -1273,16 +1412,42 @@ public sealed class LeaderTreasureAutomation : IDisposable
             ? $"({value.X:F1},{value.Y:F1},{value.Z:F1})"
             : "无";
 
-    private static string LoadHypnoslotName()
+    private void LoadDungeonProgressionObjects()
     {
         try
         {
-            var value = Plugin.DataManager.GetExcelSheet<EObjName>().GetRow(HypnoslotNameRowId).Singular.ToString();
-            return string.IsNullOrWhiteSpace(value) ? "潜网巡梦" : value;
+            var englishSheet = Plugin.DataManager.GetExcelSheet<EObjName>(ClientLanguage.English);
+            var localSheet = Plugin.DataManager.GetExcelSheet<EObjName>();
+            var wantedNames = TreasureDungeonCatalog.Profiles
+                .Select(profile => profile.ProgressionObjectName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var baseIdByEnglishName = englishSheet
+                .Where(row => wantedNames.Contains(row.Singular.ToString()))
+                .GroupBy(row => row.Singular.ToString(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().RowId, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var dungeon in TreasureDungeonCatalog.Profiles)
+            {
+                if (!baseIdByEnglishName.TryGetValue(dungeon.ProgressionObjectName, out var baseId))
+                {
+                    continue;
+                }
+
+                progressionObjectBaseIds[dungeon.TerritoryId] = baseId;
+                var localName = localSheet.GetRow(baseId).Singular.ToString();
+                progressionObjectNames[dungeon.TerritoryId] = string.IsNullOrWhiteSpace(localName)
+                    ? dungeon.ProgressionObjectName
+                    : localName;
+            }
+
+            diagnostics.Write(
+                "宝物库",
+                $"已载入 {progressionObjectBaseIds.Count}/{TreasureDungeonCatalog.Profiles.Count} 个宝物库机关。" );
         }
-        catch
+        catch (Exception exception)
         {
-            return "潜网巡梦";
+            Plugin.Log.Warning(exception, "Failed to load treasure dungeon progression objects.");
+            diagnostics.Write("宝物库", $"读取宝物库机关数据失败：{exception.Message}" );
         }
     }
 
@@ -1331,6 +1496,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
         ResetOutdoorEncounter();
         decipherMenuSelectionIssued = false;
         decipherInventoryCountBefore = 0;
+        higherLowerAttemptIndex = 0;
+        nextHigherLowerActionUtc = DateTime.MinValue;
         dungeonInteractionTimes.Clear();
     }
 

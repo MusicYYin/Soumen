@@ -120,6 +120,10 @@ public sealed class Configuration : IPluginConfiguration
         {
             configuration.UiTheme = UiTheme.Ocean;
         }
+        if (!TreasureMapCatalog.Contains(configuration.LeaderTreasureMapItemId))
+        {
+            configuration.LeaderTreasureMapItemId = TreasureMapCatalog.Default.ItemId;
+        }
         configuration.LeaderMapMaximumUnitPrice = Math.Clamp(configuration.LeaderMapMaximumUnitPrice, 1_000u, 9_999_999u);
         configuration.Version = 11;
         configuration.Save();

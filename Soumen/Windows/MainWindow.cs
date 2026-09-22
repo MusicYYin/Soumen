@@ -380,17 +380,31 @@ public sealed class MainWindow : Window
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("车头模式", ImGuiTreeNodeFlags.DefaultOpen))
         {
-            ImGui.TextColored(Muted, "当前完整支持 G18；需要能在打开藏宝图时自动创建旗标的插件。");
+            ImGui.TextColored(Muted, "支持 G8–G18；需要能在打开藏宝图时自动创建旗标的插件。");
             ImGui.SetNextItemWidth(360f * ImGuiHelpers.GlobalScale);
-            if (ImGui.BeginCombo("藏宝图##LeaderTreasureMap", $"G18 · {leaderAutomation.SelectedMapName}"))
+            if (ImGui.BeginCombo("藏宝图##LeaderTreasureMap", leaderAutomation.SelectedMapLabel))
             {
-                ImGui.Selectable($"G18 · {leaderAutomation.SelectedMapName}", true);
+                foreach (var profile in TreasureMapCatalog.Profiles.OrderByDescending(profile => profile.Grade))
+                {
+                    var selected = profile.ItemId == leaderAutomation.SelectedMap.ItemId;
+                    var name = GetItemName(profile.ItemId, $"{profile.GradeLabel} 藏宝图");
+                    var kind = profile.HasTreasureDungeon ? "宝物库" : "野外";
+                    if (ImGui.Selectable($"{profile.GradeLabel} · {name}  ·  {kind}##leader-map-{profile.ItemId}", selected))
+                    {
+                        leaderAutomation.SelectMap(profile.ItemId);
+                    }
+
+                    if (selected)
+                    {
+                        ImGui.SetItemDefaultFocus();
+                    }
+                }
                 ImGui.EndCombo();
             }
 
             ImGui.Spacing();
             DrawCheckbox(
-                "无图时前往海都市场板自动补满两张 G18",
+                $"无图时前往海都市场板自动补满两张 {leaderAutomation.SelectedMap.GradeLabel}",
                 nameof(configuration.AutoRestockLeaderMaps),
                 configuration.AutoRestockLeaderMaps,
                 value => configuration.AutoRestockLeaderMaps = value);
@@ -519,7 +533,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.3.0");
+        DrawSectionTitle("Soumen 0.4.4.0");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
@@ -960,6 +974,19 @@ public sealed class MainWindow : Window
         {
             update(value);
             configuration.Save();
+        }
+    }
+
+    private static string GetItemName(uint itemId, string fallback)
+    {
+        try
+        {
+            var name = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Item>().GetRow(itemId).Name.ToString();
+            return string.IsNullOrWhiteSpace(name) ? fallback : name;
+        }
+        catch
+        {
+            return fallback;
         }
     }
 

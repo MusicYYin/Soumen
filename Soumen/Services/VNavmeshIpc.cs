@@ -78,10 +78,13 @@ public sealed class VNavmeshIpc
     }
 
     public Vector3? NearestPoint(Vector3 point)
+        => NearestPoint(point, 120f, 300f);
+
+    public Vector3? NearestPoint(Vector3 point, float horizontalRange, float verticalRange)
     {
         try
         {
-            return nearestPoint.InvokeFunc(point, 120f, 300f);
+            return nearestPoint.InvokeFunc(point, horizontalRange, verticalRange);
         }
         catch (Exception exception)
         {

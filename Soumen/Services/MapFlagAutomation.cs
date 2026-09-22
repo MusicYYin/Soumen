@@ -32,6 +32,7 @@ public sealed class MapFlagAutomation : IDisposable
     private readonly Configuration configuration;
     private readonly DiagnosticLogger diagnostics;
     private readonly VNavmeshIpc vnavmesh;
+    private readonly TreasureSpotResolver treasureSpots;
     private readonly ExternalPluginCoordinator externalPlugins;
     private readonly TeleportService teleporter;
     private readonly Dictionary<string, MapFlagTarget> destinations = [];
@@ -77,6 +78,7 @@ public sealed class MapFlagAutomation : IDisposable
         this.configuration = configuration;
         this.diagnostics = diagnostics;
         vnavmesh = new VNavmeshIpc(Plugin.PluginInterface, diagnostics);
+        treasureSpots = new TreasureSpotResolver(diagnostics);
         teleporter = new TeleportService(diagnostics);
         externalPlugins = new ExternalPluginCoordinator(configuration);
 
@@ -301,8 +303,13 @@ public sealed class MapFlagAutomation : IDisposable
             return null;
         }
 
-        return HorizontalDistance(player.Position, target.ToWorld(player.Position.Y));
+        return HorizontalDistance(player.Position, GetResolvedWorldPosition(target, player.Position.Y));
     }
+
+    public Vector3 GetResolvedWorldPosition(MapFlagTarget target, float fallbackHeight)
+        => treasureSpots.TryResolve(target, out var position, out _)
+            ? position
+            : target.ToWorld(fallbackHeight);
 
     public int NearbyDestinationCount(MapFlagTarget target)
         => destinations.Values.Count(other => IsNearby(target, other));
@@ -512,7 +519,7 @@ public sealed class MapFlagAutomation : IDisposable
         var player = Plugin.ObjectTable.LocalPlayer;
         if (player != null
             && Plugin.ClientState.TerritoryType == target.TerritoryId
-            && HorizontalDistance(player.Position, target.ToWorld(player.Position.Y))
+            && HorizontalDistance(player.Position, GetResolvedWorldPosition(target, player.Position.Y))
                 <= Math.Clamp(configuration.ArrivalTolerance, 3f, 30f))
         {
             diagnostics.Write(
@@ -1426,6 +1433,17 @@ public sealed class MapFlagAutomation : IDisposable
         if (player == null)
         {
             return null;
+        }
+
+        if (treasureSpots.TryResolve(target, out var treasureSpot, out var snapDistance))
+        {
+            var resolved = vnavmesh.NearestPoint(treasureSpot, 6f, 4f) ?? treasureSpot;
+            diagnostics.WriteThrottled(
+                $"treasure-spot-{target.Serial}",
+                "藏宝点",
+                $"旗标已校正到真实挖掘点：偏差 {snapDistance:F1}y，raw={FormatPoint(target.ToWorld(0f))}，resolved={FormatPoint(resolved)}。",
+                TimeSpan.FromMinutes(1));
+            return resolved;
         }
 
         SetMapFlag(target);
