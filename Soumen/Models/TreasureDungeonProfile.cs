@@ -9,7 +9,23 @@ public enum TreasureDungeonStyle
 public sealed record TreasureDungeonProfile(
     uint TerritoryId,
     TreasureDungeonStyle Style,
-    string ProgressionObjectName);
+    string ProgressionObjectName,
+    IReadOnlyList<string>? ProgressionObjectAliases = null,
+    float ProgressionSearchRange = 80f,
+    float InteractionRange = 3.2f,
+    double InteractionRetrySeconds = 8d,
+    bool AutoConfirmProgression = true,
+    bool HandleHigherLower = true)
+{
+    public IEnumerable<string> EnumerateProgressionObjectNames()
+    {
+        yield return ProgressionObjectName;
+        foreach (var alias in ProgressionObjectAliases ?? [])
+        {
+            yield return alias;
+        }
+    }
+}
 
 public static class TreasureDungeonCatalog
 {
