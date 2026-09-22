@@ -1,3 +1,5 @@
+using Soumen.Models;
+
 namespace Soumen.Services;
 
 public sealed class ExternalPluginCoordinator
@@ -5,6 +7,8 @@ public sealed class ExternalPluginCoordinator
     private readonly Configuration configuration;
     private bool? aeTargetingEnabled;
     private bool bossModArmed;
+    private bool lazyLootArmed;
+    private LazyLootRollMode? appliedLazyLootRollMode;
 
     public ExternalPluginCoordinator(Configuration configuration)
     {
@@ -15,6 +19,10 @@ public sealed class ExternalPluginCoordinator
 
     public bool BossModRebornInstalled => IsPluginLoaded("BossModReborn");
 
+    public bool LazyLootInstalled => IsPluginLoaded("LazyLoot");
+
+    public bool GlobetrotterInstalled => IsPluginLoaded("Globetrotter");
+
     public void StartRuntime()
     {
         if (configuration.EnableBossModRebornIntegration && BossModRebornInstalled && !bossModArmed)
@@ -22,6 +30,8 @@ public sealed class ExternalPluginCoordinator
             Execute("/bmrai on");
             bossModArmed = true;
         }
+
+        ApplyLazyLootRollMode();
 
         SetNavigating(false);
     }
@@ -34,7 +44,14 @@ public sealed class ExternalPluginCoordinator
             Execute("/bmrai off");
         }
 
+        if (lazyLootArmed && LazyLootInstalled)
+        {
+            Execute("/fulf off");
+        }
+
         bossModArmed = false;
+        lazyLootArmed = false;
+        appliedLazyLootRollMode = null;
         aeTargetingEnabled = null;
     }
 
@@ -60,6 +77,44 @@ public sealed class ExternalPluginCoordinator
         {
             aeTargetingEnabled = null;
         }
+
+        if (!LazyLootInstalled)
+        {
+            lazyLootArmed = false;
+            appliedLazyLootRollMode = null;
+        }
+        else if (!lazyLootArmed)
+        {
+            ApplyLazyLootRollMode();
+        }
+    }
+
+    public void ApplyLazyLootRollMode()
+    {
+        if (!LazyLootInstalled)
+        {
+            lazyLootArmed = false;
+            appliedLazyLootRollMode = null;
+            return;
+        }
+
+        if (lazyLootArmed && appliedLazyLootRollMode == configuration.LazyLootRollMode)
+        {
+            return;
+        }
+
+        var command = configuration.LazyLootRollMode switch
+        {
+            LazyLootRollMode.Need => "need",
+            LazyLootRollMode.Greed => "greed",
+            LazyLootRollMode.Pass => "pass",
+            _ => "need",
+        };
+
+        Execute($"/fulf {command}");
+        Execute("/fulf on");
+        lazyLootArmed = true;
+        appliedLazyLootRollMode = configuration.LazyLootRollMode;
     }
 
     public void SetNavigating(bool navigating)
