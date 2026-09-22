@@ -13,7 +13,7 @@ FF14 Dalamud 藏宝图自动化插件。
 - 可用组合预设丢弃本轮挖宝中新获得的独立整堆物品。
 - 统计本次插件加载期间获得的金币、进入宝物库和下底次数。
 - 提供默认蓝、深色和浅色三套界面主题。
-- 可配合 AE Assist 和 BossMod Reborn 使用。
+- 可配合 AE Assist、BossMod Reborn、LazyLoot 和 Globetrotter 使用。
 - 提供跟车与车头两种模式。
 - 车头模式支持 G8–G18、特殊藏宝图、绿图与深层绿图，可自动用图、发旗、导航、等队友、挖掘、开箱与进入魔纹。
 - 车头模式无图时可前往海都市场板补充所选藏宝图：第一张解读，第二张留在背包。
@@ -35,6 +35,8 @@ https://raw.githubusercontent.com/MusicYYin/DalamudPlugins/main/pluginmaster.jso
 ## 依赖
 
 - `vnavmesh`：必需
+- `LazyLoot`：车头模式自动掷点
+- `Globetrotter`：车头模式自动标记藏宝图坐标
 - `AE Assist V3`：可选
 - `BossMod Reborn`：可选
 
