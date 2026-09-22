@@ -4,6 +4,7 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using Lumina.Excel.Sheets;
 
 namespace Soumen.Services;
 
@@ -37,6 +38,7 @@ public sealed class MarketMapPurchaseService : IDisposable
     private uint targetItemId;
     private string targetItemName = string.Empty;
     private uint maximumUnitPrice;
+    private uint maximumTotalPrice;
     private int baselineInventoryCount;
     private DateTime deadlineUtc = DateTime.MinValue;
     private DateTime nextActionUtc = DateTime.MinValue;
@@ -54,6 +56,8 @@ public sealed class MarketMapPurchaseService : IDisposable
     public string StatusText { get; private set; } = "等待市场板";
 
     public uint PurchasedUnitPrice { get; private set; }
+
+    public uint PurchasedTotalPrice { get; private set; }
 
     public bool IsBoardOpen
     {
@@ -73,19 +77,27 @@ public sealed class MarketMapPurchaseService : IDisposable
         Plugin.MarketBoard.ItemPurchased -= OnItemPurchased;
     }
 
-    public void Begin(uint itemId, string itemName, uint maxUnitPrice)
+    public void Begin(uint itemId, string itemName, uint maxUnitPrice, uint maxTotalPrice)
     {
         targetItemId = itemId;
         targetItemName = itemName;
         maximumUnitPrice = maxUnitPrice;
+        maximumTotalPrice = maxTotalPrice;
         baselineInventoryCount = ReadMainInventoryCount(itemId);
         PurchasedUnitPrice = 0;
+        PurchasedTotalPrice = 0;
         searchAttempts = 0;
         lock (eventLock)
         {
             receivedOfferings = null;
             offeringsReceived = false;
             purchaseReceived = false;
+        }
+
+        if (!HasCapacityForOne(itemId))
+        {
+            Fail("背包没有可容纳藏宝图的空位");
+            return;
         }
 
         State = MarketMapPurchaseState.Searching;
@@ -154,14 +166,7 @@ public sealed class MarketMapPurchaseService : IDisposable
                     return;
                 }
 
-                if (searchAttempts < 2)
-                {
-                    State = MarketMapPurchaseState.Searching;
-                    nextActionUtc = now;
-                    return;
-                }
-
-                Fail($"市场板没有搜索到 {targetItemName}");
+                RetrySearch($"市场板没有搜索到 {targetItemName}");
                 return;
             }
 
@@ -183,7 +188,7 @@ public sealed class MarketMapPurchaseService : IDisposable
 
                 if (now > deadlineUtc)
                 {
-                    Fail("读取市场板价格超时");
+                    RetrySearch("读取市场板价格超时");
                 }
 
                 return;
@@ -200,7 +205,7 @@ public sealed class MarketMapPurchaseService : IDisposable
                 if (purchased || ReadMainInventoryCount(targetItemId) > baselineInventoryCount)
                 {
                     State = MarketMapPurchaseState.Success;
-                    StatusText = $"已购买 {targetItemName}，单价 {PurchasedUnitPrice:N0} Gil";
+                    StatusText = $"已购买 {targetItemName}，含税 {PurchasedTotalPrice:N0} Gil";
                     diagnostics.Write("自动补图", StatusText);
                     return;
                 }
@@ -280,6 +285,12 @@ public sealed class MarketMapPurchaseService : IDisposable
 
     private unsafe void SelectAndPurchase(IReadOnlyList<IMarketBoardItemListing> offerings)
     {
+        if (!HasCapacityForOne(targetItemId))
+        {
+            Fail("背包没有可容纳藏宝图的空位");
+            return;
+        }
+
         var exactListings = offerings
             .Where(listing => listing.ItemId == targetItemId && listing.ItemQuantity == 1)
             .OrderBy(listing => listing.PricePerUnit)
@@ -301,6 +312,12 @@ public sealed class MarketMapPurchaseService : IDisposable
         }
 
         var totalCost = (long)listing.PricePerUnit + listing.TotalTax;
+        if (totalCost > maximumTotalPrice)
+        {
+            Fail($"含税价格 {totalCost:N0} Gil，超过本轮剩余预算 {maximumTotalPrice:N0} Gil");
+            return;
+        }
+
         var manager = InventoryManager.Instance();
         var gil = manager == null ? -1 : manager->GetInventoryItemCount(1);
         if (gil < totalCost)
@@ -335,7 +352,7 @@ public sealed class MarketMapPurchaseService : IDisposable
             || target->UnitPrice > maximumUnitPrice
             || target->UnitPrice != listing.PricePerUnit)
         {
-            Fail("购买前复核失败，价格或在售记录已经变化");
+            RetrySearch("在售记录或价格已经变化，正在刷新");
             return;
         }
 
@@ -353,10 +370,32 @@ public sealed class MarketMapPurchaseService : IDisposable
         }
 
         PurchasedUnitPrice = target->UnitPrice;
+        PurchasedTotalPrice = checked((uint)totalCost);
         State = MarketMapPurchaseState.WaitingForPurchase;
-        StatusText = $"正在购买 {targetItemName}，单价 {PurchasedUnitPrice:N0} Gil";
+        StatusText = $"正在购买 {targetItemName}，含税 {PurchasedTotalPrice:N0} Gil";
         deadlineUtc = DateTime.UtcNow + TimeSpan.FromSeconds(12);
-        diagnostics.Write("自动补图", $"已提交单张 {targetItemName} 的购买请求，单价 {PurchasedUnitPrice:N0} Gil。" );
+        diagnostics.Write("自动补图", $"已提交单张 {targetItemName} 的购买请求，含税 {PurchasedTotalPrice:N0} Gil。" );
+    }
+
+    private void RetrySearch(string reason)
+    {
+        lock (eventLock)
+        {
+            receivedOfferings = null;
+            offeringsReceived = false;
+        }
+
+        if (searchAttempts >= 3)
+        {
+            Fail(reason);
+            return;
+        }
+
+        State = MarketMapPurchaseState.Searching;
+        StatusText = reason;
+        nextActionUtc = DateTime.UtcNow + TimeSpan.FromSeconds(1);
+        deadlineUtc = nextActionUtc + TimeSpan.FromSeconds(15);
+        diagnostics.Write("自动补图", reason);
     }
 
     private void Fail(string reason)
@@ -394,6 +433,42 @@ public sealed class MarketMapPurchaseService : IDisposable
         }
 
         return count;
+    }
+
+    private static unsafe bool HasCapacityForOne(uint itemId)
+    {
+        var manager = InventoryManager.Instance();
+        if (manager == null)
+        {
+            return false;
+        }
+
+        var item = Plugin.DataManager.GetExcelSheet<Item>().GetRowOrDefault(itemId);
+        var stackSize = item?.StackSize ?? 1;
+        foreach (var type in MainInventories)
+        {
+            var container = manager->GetInventoryContainer(type);
+            if (container == null || !container->IsLoaded)
+            {
+                continue;
+            }
+
+            for (var index = 0; index < container->Size; index++)
+            {
+                var slot = container->GetInventorySlot(index);
+                if (slot == null || slot->ItemId == 0)
+                {
+                    return true;
+                }
+
+                if (slot->ItemId == itemId && slot->Quantity < stackSize)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static unsafe void CloseAddon(string name)
