@@ -200,10 +200,12 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        if (restockStage != RestockStage.None && !configuration.AutoRestockLeaderMaps)
+        if (restockStage != RestockStage.None
+            && (!configuration.AutoRestockLeaderMaps || !SelectedMap.CanMarketRestock))
         {
             CancelRestock();
-            SetState(LeaderAutomationState.Waiting, "自动补图已关闭");
+            SetState(LeaderAutomationState.Waiting,
+                SelectedMap.CanMarketRestock ? "自动补图已关闭" : "特殊藏宝图无法通过市场板补充");
             return;
         }
 
@@ -309,7 +311,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        if (configuration.AutoRestockLeaderMaps)
+        if (configuration.AutoRestockLeaderMaps && SelectedMap.CanMarketRestock)
         {
             BeginRestock();
             return;
@@ -321,7 +323,10 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        SetState(LeaderAutomationState.Waiting, $"任务道具和背包中都没有可用的 {SelectedMap.GradeLabel} 藏宝图");
+        SetState(LeaderAutomationState.Waiting,
+            SelectedMap.IsSpecial
+                ? $"任务道具和背包中都没有可用的 {SelectedMapName}"
+                : $"任务道具和背包中都没有可用的 {SelectedMap.GradeLabel} 藏宝图");
     }
 
     private void BeginDecipher(DateTime now)
@@ -341,6 +346,12 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private void BeginRestock()
     {
+        if (!SelectedMap.CanMarketRestock)
+        {
+            SetState(LeaderAutomationState.Waiting, "特殊藏宝图无法通过市场板补充");
+            return;
+        }
+
         StopOwnedNavigation();
         restockStage = RestockStage.BuyFirst;
         marketPurchase.Reset();
