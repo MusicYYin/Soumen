@@ -380,17 +380,19 @@ public sealed class MainWindow : Window
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("车头模式", ImGuiTreeNodeFlags.DefaultOpen))
         {
-            ImGui.TextColored(Muted, "支持 G8–G18 与特殊藏宝图；需要能在打开藏宝图时自动创建旗标的插件。");
+            ImGui.TextColored(Muted, "支持 G8–G18、特殊图、绿图与深层绿图；需要能自动创建旗标的插件。");
             ImGui.SetNextItemWidth(360f * ImGuiHelpers.GlobalScale);
             if (ImGui.BeginCombo("藏宝图##LeaderTreasureMap", leaderAutomation.SelectedMapLabel))
             {
                 foreach (var profile in TreasureMapCatalog.Profiles
-                             .OrderBy(profile => profile.IsSpecial)
+                             .OrderBy(profile => profile.CatalogOrder)
                              .ThenByDescending(profile => profile.Grade))
                 {
                     var selected = profile.ItemId == leaderAutomation.SelectedMap.ItemId;
                     var name = GetItemName(profile.ItemId, $"{profile.GradeLabel} 藏宝图");
-                    var kind = profile.HasTreasureDungeon ? "宝物库" : "野外";
+                    var kind = profile.DirectPortal
+                        ? "直达隐秘水道"
+                        : profile.HasTreasureDungeon ? "宝物库" : "野外";
                     if (ImGui.Selectable($"{profile.GradeLabel} · {name}  ·  {kind}##leader-map-{profile.ItemId}", selected))
                     {
                         leaderAutomation.SelectMap(profile.ItemId);
@@ -426,7 +428,7 @@ public sealed class MainWindow : Window
 
             ImGui.TextColored(Muted, leaderAutomation.SelectedMap.CanMarketRestock
                 ? "第一张自动解读，第二张留在背包；只购买单张上架。"
-                : "特殊藏宝图不可交易；会按堆叠数量逐张解读和使用。" );
+                : "该藏宝图不可交易；会按堆叠数量逐张解读和使用。" );
         }
 
         ImGui.Spacing();
@@ -540,7 +542,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.4.1");
+        DrawSectionTitle("Soumen 0.4.5.0");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
