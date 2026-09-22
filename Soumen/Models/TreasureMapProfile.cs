@@ -1,15 +1,44 @@
 namespace Soumen.Models;
 
+public enum TreasureMapKind
+{
+    Standard,
+    Special,
+    Green,
+    DeepGreen,
+}
+
 public sealed record TreasureMapProfile(
     int Grade,
     uint ItemId,
     uint DecodedEventItemId,
     bool HasTreasureDungeon,
-    bool IsSpecial = false)
+    TreasureMapKind Kind = TreasureMapKind.Standard)
 {
-    public string GradeLabel => IsSpecial ? "特殊" : $"G{Grade}";
+    public string GradeLabel => Kind switch
+    {
+        TreasureMapKind.Special => "特殊",
+        TreasureMapKind.Green => "绿图",
+        TreasureMapKind.DeepGreen => "深层绿图",
+        _ => $"G{Grade}",
+    };
 
-    public bool CanMarketRestock => !IsSpecial;
+    public bool IsSpecial => Kind == TreasureMapKind.Special;
+
+    public bool CanMarketRestock => Kind is TreasureMapKind.Standard or TreasureMapKind.Green;
+
+    public bool DirectPortal => Kind == TreasureMapKind.DeepGreen;
+
+    public bool IsStackable => Kind is not TreasureMapKind.Standard;
+
+    public int CatalogOrder => Kind switch
+    {
+        TreasureMapKind.Standard => 0,
+        TreasureMapKind.Special => 1,
+        TreasureMapKind.Green => 2,
+        TreasureMapKind.DeepGreen => 3,
+        _ => 4,
+    };
 }
 
 public static class TreasureMapCatalog
@@ -28,11 +57,14 @@ public static class TreasureMapCatalog
         new(17, 43557, 2003563, true),
         new(18, 46185, 2003785, true),
         // Event reward maps. Unlike regular timeworn maps, these are untradable and stack to 999.
-        new(8, 24794, 2002503, true, true),
-        new(12, 33328, 2003075, true, true),
-        new(15, 39593, 2003455, true, true),
-        new(15, 39918, 2003463, true, true),
-        new(17, 44349, 2003704, true, true),
+        new(8, 24794, 2002503, true, TreasureMapKind.Special),
+        new(12, 33328, 2003075, true, TreasureMapKind.Special),
+        new(15, 39593, 2003455, true, TreasureMapKind.Special),
+        new(15, 39918, 2003463, true, TreasureMapKind.Special),
+        new(17, 44349, 2003704, true, TreasureMapKind.Special),
+        // Rare green maps. The thief's map digs up a guaranteed portal instead of a chest.
+        new(0, 8156, 2001352, false, TreasureMapKind.Green),
+        new(0, 19770, 2002386, true, TreasureMapKind.DeepGreen),
     ];
 
     public static TreasureMapProfile Default => Profiles.First(profile => profile.ItemId == 46185);
