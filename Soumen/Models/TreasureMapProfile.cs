@@ -35,7 +35,7 @@ public static class TreasureMapCatalog
         new(17, 44349, 2003704, true, true),
     ];
 
-    public static TreasureMapProfile Default => Profiles[^1];
+    public static TreasureMapProfile Default => Profiles.First(profile => profile.ItemId == 46185);
 
     public static TreasureMapProfile Get(uint itemId)
         => Profiles.FirstOrDefault(profile => profile.ItemId == itemId) ?? Default;
