@@ -56,8 +56,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private readonly VNavmeshIpc vnavmesh;
     private readonly TeleportService teleportService;
     private readonly MarketMapPurchaseService marketPurchase;
-    private readonly Dictionary<uint, uint> progressionObjectBaseIds = [];
-    private readonly Dictionary<uint, string> progressionObjectNames = [];
+    private readonly Dictionary<uint, HashSet<uint>> progressionObjectBaseIds = [];
+    private readonly Dictionary<uint, HashSet<string>> progressionObjectNames = [];
 
     private DateTime nextUpdateUtc = DateTime.MinValue;
     private DateTime stateEnteredUtc = DateTime.UtcNow;
@@ -82,6 +82,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private bool decipherMenuSelectionIssued;
     private int decipherInventoryCountBefore;
     private int higherLowerAttemptIndex;
+    private int restockFailureCount;
+    private uint restockSpentGil;
     private bool preferInventoryMap;
     private RestockStage restockStage;
     private bool disposed;
@@ -116,6 +118,16 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     public int InventoryMapCount { get; private set; }
 
+    public bool CanRetryCurrentStep
+        => configuration.Enabled
+            && configuration.OperatingMode == OperatingMode.Leader
+            && State != LeaderAutomationState.Inactive;
+
+    public bool CanSkipCurrentStep
+        => CanRetryCurrentStep
+            && State != LeaderAutomationState.LookingForMap
+            && !(State == LeaderAutomationState.Combat && Plugin.Condition[ConditionFlag.InCombat]);
+
     public void SelectMap(uint itemId)
     {
         if (!TreasureMapCatalog.Contains(itemId) || configuration.LeaderTreasureMapItemId == itemId)
@@ -147,6 +159,147 @@ public sealed class LeaderTreasureAutomation : IDisposable
         StopOwnedNavigation();
         ResetCycle();
         SetState(LeaderAutomationState.LookingForMap, "正在检查藏宝图");
+    }
+
+    public void RetryCurrentStep()
+    {
+        if (!CanRetryCurrentStep)
+        {
+            return;
+        }
+
+        StopOwnedNavigation();
+        lastActionUtc = DateTime.MinValue;
+        lastInteractionUtc = DateTime.MinValue;
+        lastObjectNavigationUtc = DateTime.MinValue;
+        pendingYesUntilUtc = DateTime.MinValue;
+        portalSearchStartedUtc = DateTime.MinValue;
+        decipherMenuSelectionIssued = false;
+        dungeonInteractionTimes.Clear();
+
+        switch (State)
+        {
+            case LeaderAutomationState.RestockingTravel:
+                PrepareRestockTravel("正在重新前往海都市场板");
+                break;
+            case LeaderAutomationState.RestockingMarket:
+                marketPurchase.Reset();
+                if (marketPurchase.IsBoardOpen)
+                {
+                    StartMarketPurchase();
+                }
+                else
+                {
+                    PrepareRestockTravel("市场板已关闭，正在重新靠近");
+                }
+                break;
+            case LeaderAutomationState.DecipheringMap:
+            case LeaderAutomationState.ConfirmingDecipher:
+                SetState(LeaderAutomationState.LookingForMap, "重新检查并解读藏宝图");
+                break;
+            case LeaderAutomationState.OpeningDecodedMap:
+            case LeaderAutomationState.WaitingForFlag:
+                SetState(LeaderAutomationState.OpeningDecodedMap, "重新使用已解读藏宝图并读取坐标");
+                break;
+            case LeaderAutomationState.Navigating:
+                if (currentOwnTarget != null)
+                {
+                    mapAutomation.Stop("正在重新规划自己的藏宝图路线");
+                    mapAutomation.NavigateTo(currentOwnTarget.Serial);
+                }
+                SetState(LeaderAutomationState.Navigating, "正在重新检查藏宝图路线");
+                break;
+            case LeaderAutomationState.Dungeon:
+                SetState(LeaderAutomationState.Dungeon, "重新检测当前宝物库阶段");
+                break;
+            case LeaderAutomationState.Waiting:
+            case LeaderAutomationState.Error:
+                if (restockStage != RestockStage.None)
+                {
+                    marketPurchase.Reset();
+                    PrepareRestockTravel("正在恢复自动补图流程");
+                }
+                else if (TreasureContext.IsTreasureDungeon())
+                {
+                    SetState(LeaderAutomationState.Dungeon, "重新检测当前宝物库阶段");
+                }
+                else
+                {
+                    SetState(LeaderAutomationState.LookingForMap, "重新检查当前流程");
+                }
+                break;
+            default:
+                SetState(State, $"重新检测：{StatusText}");
+                break;
+        }
+
+        diagnostics.Write("车头", $"手动重新检测当前步骤：{State}。" );
+    }
+
+    public void SkipCurrentStep()
+    {
+        if (!CanSkipCurrentStep)
+        {
+            return;
+        }
+
+        var skippedState = State;
+        StopOwnedNavigation();
+        lastActionUtc = DateTime.MinValue;
+        lastInteractionUtc = DateTime.MinValue;
+        pendingYesUntilUtc = DateTime.MinValue;
+
+        switch (State)
+        {
+            case LeaderAutomationState.RestockingTravel:
+            case LeaderAutomationState.RestockingMarket:
+                CancelRestock();
+                SetState(LeaderAutomationState.Waiting, "已跳过本次自动补图，可重新检测后继续");
+                break;
+            case LeaderAutomationState.DecipheringMap:
+            case LeaderAutomationState.ConfirmingDecipher:
+                SetState(DecodedMapCount > 0
+                        ? LeaderAutomationState.OpeningDecodedMap
+                        : LeaderAutomationState.LookingForMap,
+                    DecodedMapCount > 0 ? "已跳过解读，尝试使用任务道具中的藏宝图" : "已跳过当前解读步骤");
+                break;
+            case LeaderAutomationState.OpeningDecodedMap:
+            case LeaderAutomationState.WaitingForFlag:
+            case LeaderAutomationState.Navigating:
+                SetState(LeaderAutomationState.WaitingForParty, "已跳过当前定位步骤，等待队伍确认");
+                break;
+            case LeaderAutomationState.WaitingForParty:
+                SetState(LeaderAutomationState.Digging, "已跳过队伍到齐检查，准备挖掘");
+                break;
+            case LeaderAutomationState.Digging:
+                SetState(LeaderAutomationState.ApproachingChest, "已跳过挖掘等待，开始搜索宝箱");
+                break;
+            case LeaderAutomationState.ApproachingChest:
+            case LeaderAutomationState.WaitingForCombat:
+            case LeaderAutomationState.ReopeningChest:
+                SetState(LeaderAutomationState.WaitingForLootOrPortal, "已跳过当前宝箱阶段，检查战利品与传送魔纹");
+                break;
+            case LeaderAutomationState.Combat:
+                SetState(LeaderAutomationState.ReopeningChest, "已跳过战斗等待，重新检查宝箱");
+                break;
+            case LeaderAutomationState.WaitingForLootOrPortal:
+            case LeaderAutomationState.EnteringPortal:
+                preferInventoryMap = true;
+                ResetOutdoorEncounter();
+                SetState(LeaderAutomationState.LookingForMap, "已跳过本张地图剩余步骤，检查下一张藏宝图");
+                break;
+            case LeaderAutomationState.Dungeon:
+                DeferCurrentDungeonObject();
+                SetState(LeaderAutomationState.Dungeon, "已跳过当前宝物库交互，重新搜索可处理目标");
+                break;
+            case LeaderAutomationState.Waiting:
+            case LeaderAutomationState.Error:
+                ResetCycle();
+                SetState(LeaderAutomationState.LookingForMap, "已跳过异常步骤，重新检查藏宝图");
+                break;
+        }
+
+        diagnostics.Write("车头", $"手动跳过步骤：{skippedState} -> {State}。" );
     }
 
     private void OnDestinationReached(MapFlagTarget target)
@@ -351,6 +504,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
         StopOwnedNavigation();
         restockStage = RestockStage.BuyFirst;
+        restockFailureCount = 0;
+        restockSpentGil = 0;
         marketPurchase.Reset();
         diagnostics.Write("自动补图", $"未找到可继续使用的 {SelectedMap.GradeLabel}，开始前往海都补充两张藏宝图。" );
         PrepareRestockTravel($"正在前往海都市场板购买第一张 {SelectedMap.GradeLabel}");
@@ -469,9 +624,16 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
         if (marketPurchase.State == MarketMapPurchaseState.Failed)
         {
+            if (InventoryMapCount > 0 && marketPurchase.PurchasedTotalPrice > 0)
+            {
+                CompleteMarketPurchaseStage();
+                return;
+            }
+
             if (nextRestockRetryUtc == DateTime.MinValue)
             {
-                nextRestockRetryUtc = now + TimeSpan.FromSeconds(30);
+                restockFailureCount++;
+                nextRestockRetryUtc = now + TimeSpan.FromSeconds(10);
             }
 
             var remaining = Math.Max(0, (int)Math.Ceiling((nextRestockRetryUtc - now).TotalSeconds));
@@ -482,17 +644,23 @@ public sealed class LeaderTreasureAutomation : IDisposable
             }
 
             nextRestockRetryUtc = DateTime.MinValue;
-            if (!marketPurchase.IsBoardOpen)
+            if (restockFailureCount >= 5)
             {
-                marketPurchase.Reset();
-                PrepareRestockTravel("市场板已关闭，正在重新前往");
+                var failure = marketPurchase.StatusText;
+                CancelRestock();
+                SetState(LeaderAutomationState.Error, $"自动补图连续失败：{failure}");
                 return;
             }
 
-            marketPurchase.Begin(
-                configuration.LeaderTreasureMapItemId,
-                SelectedMapName,
-                configuration.LeaderMapMaximumUnitPrice);
+            marketPurchase.Reset();
+            if (!marketPurchase.IsBoardOpen || restockFailureCount % 2 == 0)
+            {
+                marketPurchase.CloseBoard();
+                PrepareRestockTravel("正在重新打开海都市场板");
+                return;
+            }
+
+            StartMarketPurchase();
             return;
         }
 
@@ -500,6 +668,14 @@ public sealed class LeaderTreasureAutomation : IDisposable
         {
             return;
         }
+
+        CompleteMarketPurchaseStage();
+    }
+
+    private void CompleteMarketPurchaseStage()
+    {
+        restockSpentGil = checked(restockSpentGil + marketPurchase.PurchasedTotalPrice);
+        restockFailureCount = 0;
 
         switch (restockStage)
         {
@@ -525,10 +701,20 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private void StartMarketPurchase()
     {
+        if (restockSpentGil >= configuration.LeaderMapMaximumRestockCost)
+        {
+            var budget = configuration.LeaderMapMaximumRestockCost;
+            CancelRestock();
+            SetState(LeaderAutomationState.Error, $"自动补图已达到总预算 {budget:N0} Gil");
+            return;
+        }
+
+        var remainingBudget = configuration.LeaderMapMaximumRestockCost - restockSpentGil;
         marketPurchase.Begin(
             configuration.LeaderTreasureMapItemId,
             SelectedMapName,
-            configuration.LeaderMapMaximumUnitPrice);
+            configuration.LeaderMapMaximumUnitPrice,
+            remainingBudget);
         nextRestockRetryUtc = DateTime.MinValue;
         SetState(
             LeaderAutomationState.RestockingMarket,
@@ -552,14 +738,16 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private void CompleteRestock()
     {
-        var unitPrice = marketPurchase.PurchasedUnitPrice;
+        var totalSpent = restockSpentGil;
         marketPurchase.CloseBoard();
         marketPurchase.Reset();
         restockStage = RestockStage.None;
+        restockFailureCount = 0;
+        restockSpentGil = 0;
         nextRestockRetryUtc = DateTime.MinValue;
         lastActionUtc = DateTime.UtcNow;
         preferInventoryMap = false;
-        diagnostics.Write("自动补图", $"两张 {SelectedMap.GradeLabel} 已补充完成；第二张单价 {unitPrice:N0} Gil。" );
+        diagnostics.Write("自动补图", $"两张 {SelectedMap.GradeLabel} 已补充完成；合计含税 {totalSpent:N0} Gil。" );
         SetState(LeaderAutomationState.LookingForMap, $"两张 {SelectedMap.GradeLabel} 已补满，准备使用已解读藏宝图");
     }
 
@@ -572,6 +760,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
         marketPurchase.Reset();
         restockStage = RestockStage.None;
+        restockFailureCount = 0;
+        restockSpentGil = 0;
         restockArrivedUtc = DateTime.MinValue;
         restockTeleportSubmittedUtc = DateTime.MinValue;
         marketTravelStartedUtc = DateTime.MinValue;
@@ -930,9 +1120,17 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private void ProcessDungeon(DateTime now)
     {
+        var territoryId = Plugin.ClientState.TerritoryType;
+        if (!TreasureDungeonCatalog.TryGet(territoryId, out var dungeon))
+        {
+            StopOwnedNavigation();
+            StatusText = "当前宝物库尚未加入车头自动流程";
+            return;
+        }
+
         TryAcceptPendingYes(now);
 
-        if (TryHandleHigherLower(now))
+        if (dungeon.HandleHigherLower && TryHandleHigherLower(now))
         {
             return;
         }
@@ -958,10 +1156,10 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        var chest = FindDungeonChest(now);
+        var chest = FindDungeonChest(dungeon, now);
         if (chest != null)
         {
-            if (ApproachAndInteract(chest, now, "宝物库宝箱"))
+            if (ApproachAndInteract(chest, now, "宝物库宝箱", dungeon.InteractionRange))
             {
                 dungeonInteractionTimes[GetEntityId(chest)] = now;
                 StatusText = "已打开宝物库宝箱，等待下一阶段";
@@ -970,23 +1168,17 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        var territoryId = Plugin.ClientState.TerritoryType;
-        if (!TreasureDungeonCatalog.TryGet(territoryId, out var dungeon))
-        {
-            StopOwnedNavigation();
-            StatusText = "当前宝物库尚未加入车头自动流程";
-            return;
-        }
-
         var progression = FindDungeonProgressionObject(dungeon, now);
         if (progression != null)
         {
-            var label = progressionObjectNames.GetValueOrDefault(territoryId)
+            var label = progressionObjectNames.GetValueOrDefault(territoryId)?.FirstOrDefault()
                 ?? (dungeon.Style == TreasureDungeonStyle.Door ? "宝物库门" : "转盘机关");
-            if (ApproachAndInteract(progression, now, label))
+            if (ApproachAndInteract(progression, now, label, dungeon.InteractionRange))
             {
                 dungeonInteractionTimes[GetEntityId(progression)] = now;
-                pendingYesUntilUtc = now + TimeSpan.FromSeconds(8);
+                pendingYesUntilUtc = dungeon.AutoConfirmProgression
+                    ? now + TimeSpan.FromSeconds(8)
+                    : DateTime.MinValue;
                 StatusText = dungeon.Style == TreasureDungeonStyle.Door
                     ? "已选择宝物库门，等待结果"
                     : "已启动转盘机关，等待下一轮";
@@ -996,6 +1188,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
         }
 
         StopOwnedNavigation();
+        WriteNearbyDungeonObjects(dungeon);
         StatusText = dungeon.Style == TreasureDungeonStyle.Door
             ? "等待宝箱、可选门或下一场战斗"
             : "等待宝箱、转盘机关或下一场战斗";
@@ -1072,7 +1265,11 @@ public sealed class LeaderTreasureAutomation : IDisposable
         }
     }
 
-    private unsafe bool ApproachAndInteract(IGameObject gameObject, DateTime now, string label)
+    private unsafe bool ApproachAndInteract(
+        IGameObject gameObject,
+        DateTime now,
+        string label,
+        float approachRange = ObjectApproachRange)
     {
         var player = Plugin.ObjectTable.LocalPlayer;
         if (player == null || gameObject.Address == 0)
@@ -1081,7 +1278,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
         }
 
         var distance = HorizontalDistance(player.Position, gameObject.Position);
-        if (distance > ObjectApproachRange)
+        if (distance > approachRange)
         {
             if (!vnavmesh.IsInstalled || !vnavmesh.IsReady())
             {
@@ -1099,7 +1296,10 @@ public sealed class LeaderTreasureAutomation : IDisposable
                 && now - lastObjectNavigationUtc >= ObjectNavigationRetryInterval)
             {
                 lastObjectNavigationUtc = now;
-                ownsNavigation = vnavmesh.MoveCloseTo(gameObject.Position, fly: false, ObjectApproachRange - 0.4f);
+                ownsNavigation = vnavmesh.MoveCloseTo(
+                    gameObject.Position,
+                    fly: false,
+                    MathF.Max(0.5f, approachRange - 0.4f));
             }
 
             StatusText = $"正在前往{label} · {distance:F0}y";
@@ -1259,12 +1459,12 @@ public sealed class LeaderTreasureAutomation : IDisposable
             .FirstOrDefault();
     }
 
-    private unsafe IGameObject? FindDungeonChest(DateTime now)
+    private unsafe IGameObject? FindDungeonChest(TreasureDungeonProfile dungeon, DateTime now)
         => Plugin.ObjectTable
             .Where(obj => obj.Address != 0
                 && obj.IsTargetable
                 && ((NativeGameObject*)obj.Address)->ObjectKind == ObjectKind.Treasure
-                && CanRetryDungeonObject(GetEntityId(obj), now))
+                && CanRetryDungeonObject(GetEntityId(obj), now, dungeon.InteractionRetrySeconds))
             .OrderBy(obj => HorizontalDistance(Plugin.ObjectTable.LocalPlayer?.Position ?? obj.Position, obj.Position))
             .FirstOrDefault();
 
@@ -1273,32 +1473,57 @@ public sealed class LeaderTreasureAutomation : IDisposable
             .Where(obj => obj.Address != 0
                 && obj.IsTargetable
                 && ((NativeGameObject*)obj.Address)->ObjectKind == ObjectKind.EventObj
-                && HorizontalDistance(Plugin.ObjectTable.LocalPlayer?.Position ?? obj.Position, obj.Position) <= 80f
+                && HorizontalDistance(Plugin.ObjectTable.LocalPlayer?.Position ?? obj.Position, obj.Position)
+                    <= dungeon.ProgressionSearchRange
                 && IsDungeonProgressionObject(dungeon, obj)
-                && CanRetryDungeonObject(GetEntityId(obj), now))
+                && CanRetryDungeonObject(GetEntityId(obj), now, dungeon.InteractionRetrySeconds))
             .OrderBy(obj => HorizontalDistance(Plugin.ObjectTable.LocalPlayer?.Position ?? obj.Position, obj.Position))
             .FirstOrDefault();
 
     private bool IsDungeonProgressionObject(TreasureDungeonProfile dungeon, IGameObject gameObject)
     {
-        if (progressionObjectBaseIds.TryGetValue(dungeon.TerritoryId, out var baseId)
-            && gameObject.BaseId == baseId)
+        if (progressionObjectBaseIds.TryGetValue(dungeon.TerritoryId, out var baseIds)
+            && baseIds.Contains(gameObject.BaseId))
         {
             return true;
         }
 
-        var localizedName = progressionObjectNames.GetValueOrDefault(dungeon.TerritoryId);
-        return (!string.IsNullOrWhiteSpace(localizedName)
-                && string.Equals(gameObject.Name.TextValue, localizedName, StringComparison.OrdinalIgnoreCase))
-            || string.Equals(
-                gameObject.Name.TextValue,
-                dungeon.ProgressionObjectName,
-                StringComparison.OrdinalIgnoreCase);
+        return progressionObjectNames.TryGetValue(dungeon.TerritoryId, out var names)
+            && names.Contains(gameObject.Name.TextValue);
     }
 
-    private bool CanRetryDungeonObject(uint entityId, DateTime now)
+    private bool CanRetryDungeonObject(uint entityId, DateTime now, double retrySeconds)
         => !dungeonInteractionTimes.TryGetValue(entityId, out var last)
-            || now - last >= TimeSpan.FromSeconds(8);
+            || now - last >= TimeSpan.FromSeconds(retrySeconds);
+
+    private unsafe void WriteNearbyDungeonObjects(TreasureDungeonProfile dungeon)
+    {
+        var playerPosition = Plugin.ObjectTable.LocalPlayer?.Position;
+        if (playerPosition == null)
+        {
+            return;
+        }
+
+        var nearby = Plugin.ObjectTable
+            .Where(obj => obj.Address != 0
+                && obj.IsTargetable
+                && ((NativeGameObject*)obj.Address)->ObjectKind == ObjectKind.EventObj
+                && HorizontalDistance(playerPosition.Value, obj.Position) <= dungeon.ProgressionSearchRange)
+            .Select(obj => $"{obj.BaseId}:{obj.Name.TextValue}")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(12)
+            .ToArray();
+        if (nearby.Length == 0)
+        {
+            return;
+        }
+
+        diagnostics.WriteThrottled(
+            $"dungeon-objects-{dungeon.TerritoryId}",
+            "宝物库",
+            $"当前可交互场景物体：{string.Join("；", nearby)}",
+            TimeSpan.FromSeconds(10));
+    }
 
     private unsafe bool HasTreasureEnemies()
         => Plugin.ObjectTable.Any(obj =>
@@ -1491,25 +1716,45 @@ public sealed class LeaderTreasureAutomation : IDisposable
             var englishSheet = Plugin.DataManager.GetExcelSheet<EObjName>(ClientLanguage.English);
             var localSheet = Plugin.DataManager.GetExcelSheet<EObjName>();
             var wantedNames = TreasureDungeonCatalog.Profiles
-                .Select(profile => profile.ProgressionObjectName)
+                .SelectMany(profile => profile.EnumerateProgressionObjectNames())
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var baseIdByEnglishName = englishSheet
+            var rowsByEnglishName = englishSheet
                 .Where(row => wantedNames.Contains(row.Singular.ToString()))
                 .GroupBy(row => row.Singular.ToString(), StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First().RowId, StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Select(row => row.RowId).ToArray(),
+                    StringComparer.OrdinalIgnoreCase);
 
             foreach (var dungeon in TreasureDungeonCatalog.Profiles)
             {
-                if (!baseIdByEnglishName.TryGetValue(dungeon.ProgressionObjectName, out var baseId))
+                var baseIds = new HashSet<uint>();
+                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var expectedName in dungeon.EnumerateProgressionObjectNames())
                 {
-                    continue;
+                    names.Add(expectedName);
+                    if (!rowsByEnglishName.TryGetValue(expectedName, out var rowIds))
+                    {
+                        continue;
+                    }
+
+                    foreach (var baseId in rowIds)
+                    {
+                        baseIds.Add(baseId);
+                        var localName = localSheet.GetRow(baseId).Singular.ToString();
+                        if (!string.IsNullOrWhiteSpace(localName))
+                        {
+                            names.Add(localName);
+                        }
+                    }
                 }
 
-                progressionObjectBaseIds[dungeon.TerritoryId] = baseId;
-                var localName = localSheet.GetRow(baseId).Singular.ToString();
-                progressionObjectNames[dungeon.TerritoryId] = string.IsNullOrWhiteSpace(localName)
-                    ? dungeon.ProgressionObjectName
-                    : localName;
+                if (baseIds.Count > 0)
+                {
+                    progressionObjectBaseIds[dungeon.TerritoryId] = baseIds;
+                }
+
+                progressionObjectNames[dungeon.TerritoryId] = names;
             }
 
             diagnostics.Write(
@@ -1538,6 +1783,22 @@ public sealed class LeaderTreasureAutomation : IDisposable
         {
             return gameObject.Address == 0 ? 0 : ((NativeGameObject*)gameObject.Address)->EntityId;
         }
+    }
+
+    private void DeferCurrentDungeonObject()
+    {
+        if (navigationObjectAddress == 0)
+        {
+            return;
+        }
+
+        var current = Plugin.ObjectTable.FirstOrDefault(obj => obj.Address == navigationObjectAddress);
+        if (current != null)
+        {
+            dungeonInteractionTimes[GetEntityId(current)] = DateTime.UtcNow + TimeSpan.FromSeconds(22);
+        }
+
+        navigationObjectAddress = 0;
     }
 
     private void StopOwnedNavigation()
