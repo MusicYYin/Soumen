@@ -19,7 +19,7 @@ public sealed class Configuration : IPluginConfiguration
     [JsonIgnore]
     private IDalamudPluginInterface? pluginInterface;
 
-    public int Version { get; set; } = 11;
+    public int Version { get; set; } = 12;
 
     public OperatingMode OperatingMode { get; set; } = OperatingMode.Follow;
 
@@ -40,6 +40,8 @@ public sealed class Configuration : IPluginConfiguration
     public bool EnableAeAssistIntegration { get; set; } = true;
 
     public bool EnableBossModRebornIntegration { get; set; } = true;
+
+    public LazyLootRollMode LazyLootRollMode { get; set; } = LazyLootRollMode.Need;
 
     public bool AutoTeleport { get; set; } = true;
 
@@ -120,12 +122,18 @@ public sealed class Configuration : IPluginConfiguration
         {
             configuration.UiTheme = UiTheme.Ocean;
         }
+        if (!Enum.IsDefined(typeof(LazyLootRollMode), configuration.LazyLootRollMode))
+        {
+            configuration.LazyLootRollMode = LazyLootRollMode.Need;
+        }
         if (!TreasureMapCatalog.Contains(configuration.LeaderTreasureMapItemId))
         {
             configuration.LeaderTreasureMapItemId = TreasureMapCatalog.Default.ItemId;
         }
         configuration.LeaderMapMaximumUnitPrice = Math.Clamp(configuration.LeaderMapMaximumUnitPrice, 1_000u, 9_999_999u);
-        configuration.Version = 11;
+        configuration.StuckSeconds = Math.Clamp(configuration.StuckSeconds, 1f, 30f);
+        configuration.ArrivalTolerance = Math.Clamp(configuration.ArrivalTolerance, 0f, 30f);
+        configuration.Version = 12;
         configuration.Save();
         return configuration;
     }
