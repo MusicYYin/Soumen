@@ -220,10 +220,20 @@ public sealed class MainWindow : Window
         if (configuration.OperatingMode == OperatingMode.Leader)
         {
             ImGui.SameLine();
-            if (ImGui.Button("重新检查", new Vector2(112f, 38f) * scale))
+            ImGui.BeginDisabled(!leaderAutomation.CanRetryCurrentStep);
+            if (ImGui.Button("重试步骤", new Vector2(100f, 38f) * scale))
             {
-                leaderAutomation.Restart();
+                leaderAutomation.RetryCurrentStep();
             }
+            ImGui.EndDisabled();
+
+            ImGui.SameLine();
+            ImGui.BeginDisabled(!leaderAutomation.CanSkipCurrentStep);
+            if (ImGui.Button("跳过步骤", new Vector2(100f, 38f) * scale))
+            {
+                leaderAutomation.SkipCurrentStep();
+            }
+            ImGui.EndDisabled();
         }
         ImGui.EndDisabled();
 
@@ -427,6 +437,14 @@ public sealed class MainWindow : Window
                 configuration.LeaderMapMaximumUnitPrice = (uint)Math.Clamp(maximumUnitPrice, 1_000, 9_999_999);
                 configuration.Save();
             }
+
+            var maximumRestockCost = (int)configuration.LeaderMapMaximumRestockCost;
+            ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
+            if (ImGui.InputInt("两张最高总价（含税）", ref maximumRestockCost, 2_000, 20_000))
+            {
+                configuration.LeaderMapMaximumRestockCost = (uint)Math.Clamp(maximumRestockCost, 2_000, 19_999_998);
+                configuration.Save();
+            }
             ImGui.EndDisabled();
 
             ImGui.TextColored(Muted, leaderAutomation.SelectedMap.CanMarketRestock
@@ -545,7 +563,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.5.1");
+        DrawSectionTitle("Soumen 0.4.6.0");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
