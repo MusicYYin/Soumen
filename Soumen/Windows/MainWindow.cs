@@ -19,6 +19,7 @@ public sealed class MainWindow : Window
     private readonly LeaderTreasureAutomation leaderAutomation;
     private readonly AutoDiscardService autoDiscardService;
     private readonly StatisticsService statisticsService;
+    private readonly GoldSaucerTreeTool goldSaucerTreeTool;
     private readonly DiagnosticLogger diagnostics;
     private string discardSearch = string.Empty;
     private int discardSource;
@@ -40,6 +41,7 @@ public sealed class MainWindow : Window
         LeaderTreasureAutomation leaderAutomation,
         AutoDiscardService autoDiscardService,
         StatisticsService statisticsService,
+        GoldSaucerTreeTool goldSaucerTreeTool,
         DiagnosticLogger diagnostics)
         : base("Soumen##SoumenMain")
     {
@@ -48,6 +50,7 @@ public sealed class MainWindow : Window
         this.leaderAutomation = leaderAutomation;
         this.autoDiscardService = autoDiscardService;
         this.statisticsService = statisticsService;
+        this.goldSaucerTreeTool = goldSaucerTreeTool;
         this.diagnostics = diagnostics;
 
         SizeConstraints = new WindowSizeConstraints
@@ -100,6 +103,12 @@ public sealed class MainWindow : Window
                 ImGui.EndTabItem();
             }
 
+            if (ImGui.BeginTabItem("工具"))
+            {
+                DrawTools();
+                ImGui.EndTabItem();
+            }
+
             if (ImGui.BeginTabItem("关于"))
             {
                 DrawAbout();
@@ -110,6 +119,30 @@ public sealed class MainWindow : Window
         }
 
         ImGui.PopStyleColor(11);
+    }
+
+    private void DrawTools()
+    {
+        ImGui.Spacing();
+        ImGui.TextColored(Accent, "金蝶 · 砍树");
+        ImGui.TextWrapped("在金蝶游乐场手动打开砍树小游戏后，自动选择难度并完成当前回合。是否继续挑战由你自己决定。");
+
+        var enabled = configuration.GoldSaucerTreeEnabled;
+        if (ImGui.Checkbox("自动砍树##GoldSaucerTree", ref enabled))
+        {
+            goldSaucerTreeTool.SetEnabled(enabled);
+        }
+
+        var difficulty = configuration.GoldSaucerTreeDifficulty;
+        if (ImGui.Combo("难度##GoldSaucerTree", ref difficulty, "泰坦之树\0魔界花之树\0仙人掌之树\0"))
+        {
+            goldSaucerTreeTool.SetDifficulty(difficulty);
+        }
+
+        ImGui.TextColored(goldSaucerTreeTool.HasError ? Danger : Muted, goldSaucerTreeTool.Status);
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextColored(Muted, "Neko 其他功能仍在逐项适配；这里只显示已经接入的功能。");
     }
 
     private void DrawHeader()

@@ -18,4 +18,8 @@
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="ECommons" Version="3.2.1.9" />
+    <None Include="../THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="Always" />
+  </ItemGroup>
 </Project>
