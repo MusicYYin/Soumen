@@ -70,6 +70,11 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool DiagnosticMode { get; set; } = false;
 
+    public bool GoldSaucerTreeEnabled { get; set; } = false;
+
+    // 0 = Titan, 1 = Morbol, 2 = Cactuar.
+    public int GoldSaucerTreeDifficulty { get; set; } = 0;
+
     public float StuckSeconds { get; set; } = 8f;
 
     public float ArrivalTolerance { get; set; } = 8f;
@@ -136,6 +141,7 @@ public sealed class Configuration : IPluginConfiguration
         configuration.LeaderMapMaximumRestockCost = Math.Clamp(configuration.LeaderMapMaximumRestockCost, 2_000u, 19_999_998u);
         configuration.StuckSeconds = Math.Clamp(configuration.StuckSeconds, 1f, 30f);
         configuration.ArrivalTolerance = Math.Clamp(configuration.ArrivalTolerance, 0f, 30f);
+        configuration.GoldSaucerTreeDifficulty = Math.Clamp(configuration.GoldSaucerTreeDifficulty, 0, 2);
         configuration.Version = 13;
         configuration.Save();
         return configuration;
