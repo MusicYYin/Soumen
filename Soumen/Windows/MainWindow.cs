@@ -596,7 +596,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.6.1");
+        DrawSectionTitle("Soumen 0.4.6.2");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");

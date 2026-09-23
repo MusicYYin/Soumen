@@ -35,6 +35,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
         this.configuration = configuration;
         this.diagnostics = diagnostics;
         ResetRound();
+        Status = configuration.GoldSaucerTreeEnabled ? "等待砍树小游戏界面" : "已关闭";
         Plugin.Framework.Update += OnUpdate;
     }
 
@@ -49,6 +50,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
         HasError = false;
         ResetRound();
         Status = enabled ? "等待砍树小游戏界面" : "已关闭";
+        diagnostics.Write("工具", $"金蝶砍树已{(enabled ? "开启" : "关闭")}。");
     }
 
     public void SetDifficulty(int difficulty)
@@ -78,12 +80,18 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
             var game = Plugin.GameGui.GetAddonByName<AtkUnitBase>("MiniGameBotanist", 1);
             if (game != null && game->IsVisible)
             {
+                if (!wasPlaying)
+                {
+                    diagnostics.Write("工具", "检测到砍树小游戏，开始本回合。");
+                }
+
                 UpdateGame(game);
                 return;
             }
 
             if (wasPlaying)
             {
+                diagnostics.Write("工具", "砍树小游戏已关闭，清除本回合状态。");
                 ResetRound();
             }
 
@@ -104,7 +112,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
             ResetRound();
             Status = "已停止：小游戏界面与预期不符，请检查客户端版本和日志";
             Plugin.Log.Error(exception, "Gold Saucer tree tool stopped due to unexpected UI data.");
-            diagnostics.Write("工具", Status);
+            diagnostics.Write("工具", $"{Status}：{exception}");
         }
     }
 
@@ -124,6 +132,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
         if (cursorY >= reference->Y && cursorY < reference->Y + DifficultyHeights[difficulty]
             && button->IsEnabled && CanClick(TimeSpan.FromMilliseconds(450)))
         {
+            diagnostics.Write("工具", $"点击砍树难度 {difficulty}，游标位置 {cursorY}。");
             button->ClickAddonButton(addon);
         }
     }
@@ -198,6 +207,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
             pendingCursor = target;
             healthBeforeHit = health;
             pendingSinceUtc = DateTime.UtcNow;
+            diagnostics.Write("工具", $"砍树挥击：目标 {target.Value}%，游标 {position:F1}%，生命值 {health}，剩余 {swings} 次。");
             button->ClickAddonButton(addon);
         }
     }
@@ -228,6 +238,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
             0 => HitPower.Nothing,
             _ => HitPower.Unobserved,
         };
+        diagnostics.Write("工具", $"砍树结果：落点 {position}%，生命值 {previousHealth} → {health}，判断 {closest.Power}。");
     }
 
     private int? ChooseTarget()
