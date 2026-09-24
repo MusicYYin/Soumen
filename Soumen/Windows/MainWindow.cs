@@ -19,7 +19,6 @@ public sealed class MainWindow : Window
     private readonly LeaderTreasureAutomation leaderAutomation;
     private readonly AutoDiscardService autoDiscardService;
     private readonly StatisticsService statisticsService;
-    private readonly GoldSaucerTreeTool goldSaucerTreeTool;
     private readonly DiagnosticLogger diagnostics;
     private string discardSearch = string.Empty;
     private int discardSource;
@@ -41,7 +40,6 @@ public sealed class MainWindow : Window
         LeaderTreasureAutomation leaderAutomation,
         AutoDiscardService autoDiscardService,
         StatisticsService statisticsService,
-        GoldSaucerTreeTool goldSaucerTreeTool,
         DiagnosticLogger diagnostics)
         : base("Soumen##SoumenMain")
     {
@@ -50,7 +48,6 @@ public sealed class MainWindow : Window
         this.leaderAutomation = leaderAutomation;
         this.autoDiscardService = autoDiscardService;
         this.statisticsService = statisticsService;
-        this.goldSaucerTreeTool = goldSaucerTreeTool;
         this.diagnostics = diagnostics;
 
         SizeConstraints = new WindowSizeConstraints
@@ -103,12 +100,6 @@ public sealed class MainWindow : Window
                 ImGui.EndTabItem();
             }
 
-            if (ImGui.BeginTabItem("工具"))
-            {
-                DrawTools();
-                ImGui.EndTabItem();
-            }
-
             if (ImGui.BeginTabItem("关于"))
             {
                 DrawAbout();
@@ -119,79 +110,6 @@ public sealed class MainWindow : Window
         }
 
         ImGui.PopStyleColor(11);
-    }
-
-    private void DrawTools()
-    {
-        ImGui.Spacing();
-        ImGui.TextColored(Accent, "金蝶 · 砍树");
-        ImGui.TextWrapped("普通模式通过界面点击。高速模式可手动开局，也可设置局数后自动开局；每局最多六回合。");
-
-        ImGui.BeginDisabled(goldSaucerTreeTool.FastBatchRunning);
-        var enabled = configuration.GoldSaucerTreeEnabled;
-        if (ImGui.Checkbox("自动砍树##GoldSaucerTree", ref enabled))
-        {
-            goldSaucerTreeTool.SetEnabled(enabled);
-        }
-
-        var difficulty = configuration.GoldSaucerTreeDifficulty;
-        if (ImGui.Combo("难度##GoldSaucerTree", ref difficulty, "泰坦之树\0魔界花之树\0仙人掌之树\0"))
-        {
-            goldSaucerTreeTool.SetDifficulty(difficulty);
-        }
-
-        var fast = goldSaucerTreeTool.FastEnabled;
-        if (ImGui.Checkbox("高速发包砍树（实验，仅当前国服版本）##GoldSaucerTree", ref fast))
-        {
-            goldSaucerTreeTool.SetFastEnabled(fast);
-        }
-        ImGui.EndDisabled();
-
-        var games = configuration.GoldSaucerTreeAutoGames;
-        if (ImGui.InputInt("自动挑战局数##GoldSaucerTree", ref games))
-        {
-            configuration.GoldSaucerTreeAutoGames = Math.Clamp(games, 1, 100);
-            configuration.Save();
-        }
-
-        ImGui.BeginDisabled(goldSaucerTreeTool.FastBatchRunning || Plugin.ClientState.TerritoryType != 388);
-        if (ImGui.Button("开始自动挑战##GoldSaucerTree"))
-        {
-            goldSaucerTreeTool.StartFastBatch(configuration.GoldSaucerTreeAutoGames);
-        }
-        ImGui.EndDisabled();
-        ImGui.SameLine();
-        ImGui.BeginDisabled(!goldSaucerTreeTool.FastBatchCanStop);
-        if (ImGui.Button("停止自动挑战##GoldSaucerTree"))
-        {
-            goldSaucerTreeTool.StopFastBatch();
-        }
-        ImGui.EndDisabled();
-
-        ImGui.TextColored(goldSaucerTreeTool.FastStatus.StartsWith("已停止") ? Danger : Muted,
-            goldSaucerTreeTool.FastStatus);
-        ImGui.TextWrapped("高速模式仅适配已抓包的 2026.09.15.0000.0000。先站在金蝶砍树位置选难度，再按开始；会在当前局结算后自动开启下一局。停止按钮会结束当前局并取消剩余局数。");
-
-        ImGui.TextColored(goldSaucerTreeTool.HasError ? Danger : Muted, goldSaucerTreeTool.Status);
-        var traceEnabled = configuration.GoldSaucerTreePacketTraceEnabled;
-        if (ImGui.Checkbox("记录砍树封包（可单独使用）##GoldSaucerTree", ref traceEnabled))
-        {
-            goldSaucerTreeTool.SetPacketTraceEnabled(traceEnabled);
-        }
-
-        ImGui.TextColored(Muted, goldSaucerTreeTool.PacketTraceStatus);
-        ImGui.TextColored(Muted, $"当前区域 ID：{Plugin.ClientState.TerritoryType}；Neko 原版要求 388。");
-        if (ImGui.CollapsingHeader("砍树封包诊断##GoldSaucerTree"))
-        {
-            ImGui.TextWrapped("记录发送事件、接收结果和等待超时。设置中开启诊断模式后，详细记录写入 diagnostic.log；同一局中不同动作的结果可使用不同 opcode。");
-            foreach (var packet in goldSaucerTreeTool.RecentPackets)
-            {
-                ImGui.TextWrapped(packet);
-            }
-        }
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.TextColored(Muted, "Neko 其他功能仍在逐项适配；这里只显示已经接入的功能。");
     }
 
     private void DrawHeader()
@@ -645,7 +563,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.6.4");
+        DrawSectionTitle("Soumen 0.4.6.1");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");

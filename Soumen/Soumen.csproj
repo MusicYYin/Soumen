@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.4.6.7</Version>
-    <AssemblyVersion>0.4.6.7</AssemblyVersion>
-    <FileVersion>0.4.6.7</FileVersion>
+    <Version>0.4.6.8</Version>
+    <AssemblyVersion>0.4.6.8</AssemblyVersion>
+    <FileVersion>0.4.6.8</FileVersion>
     <Author>MusicYYin</Author>
     <Name>Soumen</Name>
     <InternalName>Soumen</InternalName>
@@ -18,8 +18,4 @@
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="ECommons" Version="3.2.1.9" />
-    <None Include="../THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="Always" />
-  </ItemGroup>
 </Project>
