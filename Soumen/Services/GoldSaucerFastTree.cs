@@ -1,9 +1,9 @@
 namespace Soumen.Services;
 
 /// <summary>
-/// A bounded, opt-in packet sequence for an Out on a Limb game. The user
-/// opens the minigame normally; this handles up to six rounds and their continuations.
-/// Every transition waits for the corresponding server response.
+/// A bounded, opt-in packet sequence for Out on a Limb. It can start games
+/// automatically and handles up to six rounds per game. Every transition
+/// waits for the corresponding server response.
 /// </summary>
 internal sealed class GoldSaucerFastTree : IDisposable
 {
@@ -12,6 +12,7 @@ internal sealed class GoldSaucerFastTree : IDisposable
     private const uint Swing = 0x010A000E;
     private const uint Continue = 0x000B000E;
     private const int MaxRounds = 6;
+    private static readonly TimeSpan BetweenGames = TimeSpan.FromSeconds(3);
 
     private readonly GoldSaucerPacketTrace trace;
     private readonly DiagnosticLogger diagnostics;
@@ -21,9 +22,13 @@ internal sealed class GoldSaucerFastTree : IDisposable
     private int swings;
     private int rounds;
     private int difficulty;
+    private int plannedGames;
+    private int completedGames;
     private bool enabled;
+    private bool batchRunning;
+    private bool stopRequested;
 
-    private enum Stage { Idle, Start, Prepare, Difficulty, Swing, ContinueDelay, Continuing, Finishing, Finish }
+    private enum Stage { Idle, NextGameDelay, Start, Prepare, Difficulty, Swing, ContinueDelay, Continuing, Finishing, Finish }
 
     internal GoldSaucerFastTree(GoldSaucerPacketTrace trace, DiagnosticLogger diagnostics)
     {
@@ -34,28 +39,113 @@ internal sealed class GoldSaucerFastTree : IDisposable
 
     internal string Status { get; private set; } = "已关闭";
     internal bool IsEnabled => enabled;
+    internal bool IsBatchRunning => batchRunning || stopRequested;
+    internal bool CanStopBatch => batchRunning;
 
     internal void SetEnabled(bool value)
     {
         enabled = value;
+        batchRunning = false;
+        stopRequested = false;
+        plannedGames = 0;
+        completedGames = 0;
         Reset(value ? "等待手动开始小游戏并选择难度" : "已关闭");
+    }
+
+    internal void StartBatch(int games)
+    {
+        if (!enabled || !Plugin.ClientState.IsLoggedIn || Plugin.ClientState.TerritoryType != 388)
+        {
+            Status = "已停止：请先进入金蝶游乐场再开始";
+            return;
+        }
+
+        if (stage != Stage.Idle || IsBatchRunning)
+        {
+            Status = "请等待当前小游戏结束，再启动自动挑战";
+            return;
+        }
+
+        plannedGames = Math.Clamp(games, 1, 100);
+        completedGames = 0;
+        batchRunning = true;
+        stopRequested = false;
+        deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+        Status = $"自动挑战已启动，计划 {plannedGames} 局，准备第 1 局";
+        diagnostics.Write("砍树高速", Status);
+    }
+
+    internal void StopBatch()
+    {
+        if (!batchRunning)
+        {
+            return;
+        }
+
+        batchRunning = false;
+        stopRequested = true;
+        if (stage is Stage.Idle or Stage.NextGameDelay)
+        {
+            Reset($"已停止自动挑战，完成 {completedGames} 局");
+            return;
+        }
+
+        if (stage == Stage.Start)
+        {
+            Status = "正在停止：等待开局确认后结束当前小游戏";
+            diagnostics.Write("砍树高速", Status);
+            return;
+        }
+
+        if (stage is Stage.Finishing or Stage.Finish)
+        {
+            Status = "正在停止：等待当前小游戏结算";
+            diagnostics.Write("砍树高速", Status);
+            return;
+        }
+
+        Send(14, 0, true, Stage.Finish, "停止：结束当前小游戏");
     }
 
     internal void Update()
     {
-        if (!enabled || stage == Stage.Idle)
+        if (!enabled)
         {
             return;
         }
 
         if (!Plugin.ClientState.IsLoggedIn || Plugin.ClientState.TerritoryType != 388)
         {
-            Stop("已停止：离开金蝶区域");
+            trace.ClearSender();
+            if (IsBatchRunning || stage != Stage.Idle)
+            {
+                Stop("已停止：离开金蝶区域");
+            }
+
             return;
         }
 
-        if (DateTime.UtcNow < deadline)
+        var now = DateTime.UtcNow;
+        if (stage == Stage.Idle)
         {
+            if (batchRunning)
+            {
+                StartNextGame(now);
+            }
+
+            return;
+        }
+
+        if (now < deadline)
+        {
+            return;
+        }
+
+        if (stage == Stage.NextGameDelay)
+        {
+            stage = Stage.Idle;
+            deadline = now + TimeSpan.FromSeconds(15);
+            StartNextGame(now);
             return;
         }
 
@@ -74,6 +164,40 @@ internal sealed class GoldSaucerFastTree : IDisposable
         Stop($"已停止：等待 {stage} 的回包超过 4 秒；可按 ESC 退出并查看 diagnostic.log");
     }
 
+    private void StartNextGame(DateTime now)
+    {
+        if (now > deadline)
+        {
+            Stop("已停止：15 秒内未取得区服发送连接，请查看日志");
+            return;
+        }
+
+        if (!trace.CanSend)
+        {
+            Status = $"等待区服连接，准备第 {completedGames + 1}/{plannedGames} 局";
+            return;
+        }
+
+        var player = Plugin.ObjectTable.LocalPlayer;
+        var targetId = player == null ? 0U : unchecked((uint)player.GameObjectId);
+        if (targetId is 0 or 0xE0000000)
+        {
+            Stop("已停止：无法读取本地角色的对象 ID");
+            return;
+        }
+
+        if (!trace.SendFastStart(targetId))
+        {
+            Stop("已停止：自动开局发送失败，请查看日志");
+            return;
+        }
+
+        search.Reset();
+        rounds = 0;
+        swings = 0;
+        Advance(Stage.Start, $"自动开始第 {completedGames + 1}/{plannedGames} 局（对象 0x{targetId:X8}）");
+    }
+
     private void OnPacket(GoldSaucerPacketTrace.PacketRecord packet)
     {
         if (!enabled)
@@ -83,7 +207,8 @@ internal sealed class GoldSaucerFastTree : IDisposable
 
         if (packet.Direction == "发送")
         {
-            if (packet.Opcode == 0x00B5 && packet.EventId == 0x00240006 && stage == Stage.Idle
+            if (packet.Opcode == 0x00B5 && packet.EventId == 0x00240006
+                && (stage is Stage.Idle or Stage.NextGameDelay)
                 && Plugin.ClientState.TerritoryType == 388)
             {
                 search.Reset();
@@ -93,7 +218,14 @@ internal sealed class GoldSaucerFastTree : IDisposable
             }
             else if (packet.Opcode == 0x03D6 && stage is not (Stage.Idle or Stage.Finish))
             {
-                Reset("已停止：游戏结束了本局");
+                if (batchRunning)
+                {
+                    Stop("已停止：游戏被外部操作结束");
+                }
+                else
+                {
+                    Reset("已停止：游戏结束了本局");
+                }
             }
 
             return;
@@ -101,6 +233,12 @@ internal sealed class GoldSaucerFastTree : IDisposable
 
         if (packet.Direction != "接收" || Plugin.ClientState.TerritoryType != 388)
         {
+            return;
+        }
+
+        if (stopRequested && stage == Stage.Start && packet.Opcode == 0x01FD)
+        {
+            Send(14, 0, true, Stage.Finish, "停止：开局已确认，结束小游戏");
             return;
         }
 
@@ -157,10 +295,34 @@ internal sealed class GoldSaucerFastTree : IDisposable
                 Send(Swing, (uint)search.Current, false, Stage.Swing, $"第 {rounds + 1} 回合第一次挥击");
                 break;
             case Stage.Finish when packet.Opcode == 0x00D9:
-                Reset($"共 {rounds} 回合已结算；再次挑战请手动开始新一局");
+                if (stopRequested)
+                {
+                    stopRequested = false;
+                    Reset($"已停止自动挑战，完成 {completedGames} 局");
+                }
+                else if (batchRunning)
+                {
+                    completedGames++;
+                    if (completedGames < plannedGames)
+                    {
+                        Reset($"第 {completedGames}/{plannedGames} 局已结算，准备下一局");
+                        stage = Stage.NextGameDelay;
+                        deadline = DateTime.UtcNow + BetweenGames;
+                    }
+                    else
+                    {
+                        batchRunning = false;
+                        Reset($"自动挑战完成，共 {completedGames} 局");
+                    }
+                }
+                else
+                {
+                    Reset($"共 {rounds} 回合已结算；再次挑战请手动开始新一局");
+                }
+
                 break;
             case Stage.Continuing when packet.Opcode == 0x00D9:
-                Reset("续局期间小游戏提前结束；请检查封包日志");
+                Stop("续局期间小游戏提前结束；请检查封包日志");
                 break;
         }
     }
@@ -191,6 +353,8 @@ internal sealed class GoldSaucerFastTree : IDisposable
     private void Stop(string reason)
     {
         enabled = false;
+        batchRunning = false;
+        stopRequested = false;
         trace.ClearSender();
         Reset(reason);
     }
@@ -198,6 +362,7 @@ internal sealed class GoldSaucerFastTree : IDisposable
     private void Reset(string reason)
     {
         stage = Stage.Idle;
+        stopRequested = false;
         swings = 0;
         rounds = 0;
         search.Reset();
