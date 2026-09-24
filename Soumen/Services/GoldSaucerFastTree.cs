@@ -1,8 +1,8 @@
 namespace Soumen.Services;
 
 /// <summary>
-/// A bounded, opt-in packet sequence for one Out on a Limb round. The user
-/// opens the minigame and picks difficulty normally; this handles the swings.
+/// A bounded, opt-in packet sequence for an Out on a Limb game. The user
+/// opens the minigame normally; this handles up to six rounds and their continuations.
 /// Every transition waits for the corresponding server response.
 /// </summary>
 internal sealed class GoldSaucerFastTree : IDisposable
@@ -10,6 +10,8 @@ internal sealed class GoldSaucerFastTree : IDisposable
     private const uint Prepare = 0x0107000E;
     private const uint Difficulty = 0x0109000E;
     private const uint Swing = 0x010A000E;
+    private const uint Continue = 0x000B000E;
+    private const int MaxRounds = 6;
 
     private readonly GoldSaucerPacketTrace trace;
     private readonly DiagnosticLogger diagnostics;
@@ -17,10 +19,11 @@ internal sealed class GoldSaucerFastTree : IDisposable
     private Stage stage;
     private DateTime deadline;
     private int swings;
+    private int rounds;
     private int difficulty;
     private bool enabled;
 
-    private enum Stage { Idle, Start, Prepare, Difficulty, Swing, Finishing, Finish }
+    private enum Stage { Idle, Start, Prepare, Difficulty, Swing, ContinueDelay, Continuing, Finishing, Finish }
 
     internal GoldSaucerFastTree(GoldSaucerPacketTrace trace, DiagnosticLogger diagnostics)
     {
@@ -56,6 +59,12 @@ internal sealed class GoldSaucerFastTree : IDisposable
             return;
         }
 
+        if (stage == Stage.ContinueDelay)
+        {
+            Send(Continue, 0, false, Stage.Continuing, $"第 {rounds} 回合完成，申请续局");
+            return;
+        }
+
         if (stage == Stage.Finishing)
         {
             Send(14, 0, true, Stage.Finish, "发送结算");
@@ -79,6 +88,7 @@ internal sealed class GoldSaucerFastTree : IDisposable
             {
                 search.Reset();
                 swings = 0;
+                rounds = 0;
                 Advance(Stage.Start, "观察到开局，等待小游戏画面");
             }
             else if (packet.Opcode == 0x03D6 && stage is not (Stage.Idle or Stage.Finish))
@@ -114,9 +124,23 @@ internal sealed class GoldSaucerFastTree : IDisposable
                 diagnostics.Write("砍树高速", $"第 {swings} 次：位置 {search.Current}，强度 {packet.First}，剩余 {packet.Second}，结束标志 {packet.Third}");
                 if (packet.Second == 0 || packet.Third == 1 || swings >= 10)
                 {
-                    stage = Stage.Finishing;
-                    deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
-                    Status = "本回合结束，等待结算";
+                    rounds++;
+                    if (packet.Second == 0 && packet.Third == 1 && rounds < MaxRounds)
+                    {
+                        stage = Stage.ContinueDelay;
+                        // Give the game a frame to process the result before requesting
+                        // the next round; the server reply still gates the first swing.
+                        deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(100);
+                        Status = $"第 {rounds} 回合结束，等待续局";
+                        diagnostics.Write("砍树高速", Status);
+                    }
+                    else
+                    {
+                        stage = Stage.Finishing;
+                        deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+                        Status = $"第 {rounds} 回合结束，等待结算";
+                        diagnostics.Write("砍树高速", Status);
+                    }
                 }
                 else
                 {
@@ -125,8 +149,18 @@ internal sealed class GoldSaucerFastTree : IDisposable
                 }
 
                 break;
+            case Stage.Continuing when packet.Opcode == 0x0267 && packet.Category == 0x0719000E
+                                       && packet.First == 10 && packet.Third == 0:
+                search.Reset();
+                swings = 0;
+                diagnostics.Write("砍树高速", $"续局回包已确认，开始第 {rounds + 1} 回合");
+                Send(Swing, (uint)search.Current, false, Stage.Swing, $"第 {rounds + 1} 回合第一次挥击");
+                break;
             case Stage.Finish when packet.Opcode == 0x00D9:
-                Reset("本局已结算；需要继续请手动开始下一局");
+                Reset($"共 {rounds} 回合已结算；再次挑战请手动开始新一局");
+                break;
+            case Stage.Continuing when packet.Opcode == 0x00D9:
+                Reset("续局期间小游戏提前结束；请检查封包日志");
                 break;
         }
     }
@@ -165,6 +199,7 @@ internal sealed class GoldSaucerFastTree : IDisposable
     {
         stage = Stage.Idle;
         swings = 0;
+        rounds = 0;
         search.Reset();
         Status = reason;
         diagnostics.Write("砍树高速", reason);
