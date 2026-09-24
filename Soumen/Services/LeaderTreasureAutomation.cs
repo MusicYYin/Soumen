@@ -21,6 +21,7 @@ namespace Soumen.Services;
 
 public sealed class LeaderTreasureAutomation : IDisposable
 {
+    private const uint HypnoslotNameRowId = 2014790;
     private const ushort LimsaLominsaLowerDecksTerritoryId = 129;
     private static readonly uint[] MarketBoardDataIds = [2000402, 2000442];
     private const float ObjectApproachRange = 3.2f;
@@ -85,6 +86,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private int restockFailureCount;
     private uint restockSpentGil;
     private bool preferInventoryMap;
+    private TreasureMapProfile? decodedMapProfile;
+    private bool decodedInventoryLoaded;
     private RestockStage restockStage;
     private bool disposed;
 
@@ -450,10 +453,22 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private void ProcessMapAcquisition(DateTime now)
     {
-        if (!preferInventoryMap && DecodedMapCount > 0)
+        if (!decodedInventoryLoaded)
         {
+            StatusText = "等待任务道具载入后检查已解读藏宝图";
+            return;
+        }
+
+        if (DecodedMapCount > 0 && (!preferInventoryMap || InventoryMapCount == 0))
+        {
+            if (preferInventoryMap && now - stateEnteredUtc < TimeSpan.FromSeconds(2))
+            {
+                StatusText = "等待上张藏宝图任务道具状态刷新";
+                return;
+            }
+
             ClearMapFlag();
-            SetState(LeaderAutomationState.OpeningDecodedMap, $"正在使用已解读的 {SelectedMap.GradeLabel} 藏宝图");
+            SetState(LeaderAutomationState.OpeningDecodedMap, $"正在使用已解读的 {decodedMapProfile?.GradeLabel ?? SelectedMap.GradeLabel} 藏宝图");
             lastActionUtc = DateTime.MinValue;
             return;
         }
@@ -464,15 +479,15 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        if (configuration.AutoRestockLeaderMaps && SelectedMap.CanMarketRestock)
+        if (DecodedMapCount > 0)
         {
-            BeginRestock();
+            StatusText = "本张地图已完成，等待已解读藏宝图状态刷新";
             return;
         }
 
-        if (preferInventoryMap && DecodedMapCount > 0)
+        if (configuration.AutoRestockLeaderMaps && SelectedMap.CanMarketRestock)
         {
-            StatusText = "本张地图已完成，等待已解读藏宝图状态刷新";
+            BeginRestock();
             return;
         }
 
@@ -594,6 +609,13 @@ public sealed class LeaderTreasureAutomation : IDisposable
         if (marketBoard != null)
         {
             marketTravelStartedUtc = marketTravelStartedUtc == DateTime.MinValue ? now : marketTravelStartedUtc;
+            if (now - marketTravelStartedUtc > TimeSpan.FromSeconds(35))
+            {
+                CancelRestock();
+                SetState(LeaderAutomationState.Error, "市场布告板交互后未打开市场界面，请查看诊断日志");
+                return;
+            }
+
             if (ApproachAndOpenMarketBoard(marketBoard, now))
             {
                 StatusText = "已操作海都市场布告板，等待市场界面";
@@ -701,20 +723,10 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private void StartMarketPurchase()
     {
-        if (restockSpentGil >= configuration.LeaderMapMaximumRestockCost)
-        {
-            var budget = configuration.LeaderMapMaximumRestockCost;
-            CancelRestock();
-            SetState(LeaderAutomationState.Error, $"自动补图已达到总预算 {budget:N0} Gil");
-            return;
-        }
-
-        var remainingBudget = configuration.LeaderMapMaximumRestockCost - restockSpentGil;
         marketPurchase.Begin(
             configuration.LeaderTreasureMapItemId,
             SelectedMapName,
-            configuration.LeaderMapMaximumUnitPrice,
-            remainingBudget);
+            configuration.LeaderMapMaximumUnitPrice);
         nextRestockRetryUtc = DateTime.MinValue;
         SetState(
             LeaderAutomationState.RestockingMarket,
@@ -781,49 +793,86 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        var addon = Plugin.GameGui.GetAddonByName<AddonSelectIconString>("SelectIconString", 1);
-        if (addon == null || !addon->IsVisible)
-        {
-            return;
-        }
-
         var targetName = GetSelectedMapName();
         var normalizedTarget = NormalizeMapName(targetName);
-        var menu = addon->PopupMenu.PopupMenu;
-        var entries = new List<string>();
-        for (var index = 0; index < menu.EntryCount; index++)
+        for (var addonIndex = 1; addonIndex <= 10; addonIndex++)
         {
-            var pointer = menu.EntryNames[index].Value;
-            if (pointer == null)
+            var iconAddon = Plugin.GameGui.GetAddonByName<AddonSelectIconString>("SelectIconString", addonIndex);
+            if (iconAddon != null && iconAddon->IsVisible)
+            {
+                var menu = iconAddon->PopupMenu.PopupMenu;
+                for (var index = 0; index < menu.EntryCount; index++)
+                {
+                    var pointer = menu.EntryNames[index].Value;
+                    if (pointer == null)
+                    {
+                        continue;
+                    }
+
+                    var text = MemoryHelper.ReadSeStringNullTerminated((nint)pointer).TextValue;
+                    if (!MatchesSelectedMap(text, targetName, normalizedTarget))
+                    {
+                        continue;
+                    }
+
+                    iconAddon->AtkUnitBase.FireCallbackInt(index);
+                    CompleteDecipherSelection(now, index, text, "SelectIconString");
+                    return;
+                }
+
+                diagnostics.WriteThrottled("decipher-icon-menu", "车头",
+                    $"SelectIconString#{addonIndex} 已显示，但未匹配藏宝图“{targetName}”。", TimeSpan.FromSeconds(2));
+            }
+
+            var stringAddon = Plugin.GameGui.GetAddonByName<AddonSelectString>("SelectString", addonIndex);
+            if (stringAddon == null || !stringAddon->IsVisible)
             {
                 continue;
             }
 
-            var text = MemoryHelper.ReadSeStringNullTerminated((nint)pointer).TextValue;
-            entries.Add(text);
-            var normalizedEntry = NormalizeMapName(text);
-            if (!text.Contains(targetName, StringComparison.OrdinalIgnoreCase)
-                && (normalizedTarget.Length == 0
-                    || normalizedEntry.Length == 0
-                    || (!normalizedEntry.Contains(normalizedTarget, StringComparison.OrdinalIgnoreCase)
-                        && !normalizedTarget.Contains(normalizedEntry, StringComparison.OrdinalIgnoreCase))))
+            var stringMenu = stringAddon->PopupMenu.PopupMenu;
+            for (var index = 0; index < stringMenu.EntryCount; index++)
             {
-                continue;
+                var pointer = stringMenu.EntryNames[index].Value;
+                if (pointer == null)
+                {
+                    continue;
+                }
+
+                var text = MemoryHelper.ReadSeStringNullTerminated((nint)pointer).TextValue;
+                if (!MatchesSelectedMap(text, targetName, normalizedTarget))
+                {
+                    continue;
+                }
+
+                stringAddon->AtkUnitBase.FireCallbackInt(index);
+                CompleteDecipherSelection(now, index, text, "SelectString");
+                return;
             }
 
-            addon->AtkUnitBase.FireCallbackInt(index);
-            decipherMenuSelectionIssued = true;
-            pendingYesUntilUtc = now + TimeSpan.FromSeconds(6);
-            SetState(LeaderAutomationState.ConfirmingDecipher, "正在确认解读藏宝图");
-            diagnostics.Write("车头", $"在解读菜单第 {index} 项匹配到“{text}”。" );
-            return;
+            diagnostics.WriteThrottled("decipher-string-menu", "车头",
+                $"SelectString#{addonIndex} 已显示，但未匹配藏宝图“{targetName}”。", TimeSpan.FromSeconds(2));
         }
 
-        diagnostics.WriteThrottled(
-            "decipher-menu-entries",
-            "车头",
-            $"解读菜单未匹配“{targetName}”；当前条目：{string.Join("；", entries)}",
-            TimeSpan.FromSeconds(2));
+        diagnostics.WriteThrottled("decipher-menu-missing", "车头",
+            $"等待解读选择菜单 SelectIconString/SelectString，物品“{targetName}”。", TimeSpan.FromSeconds(3));
+    }
+
+    private static bool MatchesSelectedMap(string text, string targetName, string normalizedTarget)
+    {
+        var normalizedEntry = NormalizeMapName(text);
+        return text.Contains(targetName, StringComparison.OrdinalIgnoreCase)
+            || normalizedTarget.Length > 0 && normalizedEntry.Length > 0
+                && (normalizedEntry.Contains(normalizedTarget, StringComparison.OrdinalIgnoreCase)
+                    || normalizedTarget.Contains(normalizedEntry, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void CompleteDecipherSelection(DateTime now, int index, string text, string addonName)
+    {
+        decipherMenuSelectionIssued = true;
+        pendingYesUntilUtc = now + TimeSpan.FromSeconds(6);
+        SetState(LeaderAutomationState.ConfirmingDecipher, "正在确认解读藏宝图");
+        diagnostics.Write("车头", $"在 {addonName} 解读菜单第 {index} 项匹配到“{text}”。");
     }
 
     private void ProcessDecipherConfirmation(DateTime now)
@@ -852,6 +901,12 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private unsafe void ProcessOpenDecodedMap(DateTime now)
     {
+        if (DecodedMapCount == 0 || decodedMapProfile == null)
+        {
+            SetState(LeaderAutomationState.LookingForMap, "已解读藏宝图已用完，重新检查背包");
+            return;
+        }
+
         if (now - lastActionUtc < ActionRetryInterval)
         {
             return;
@@ -860,15 +915,15 @@ public sealed class LeaderTreasureAutomation : IDisposable
         lastActionUtc = now;
         var actionManager = ActionManager.Instance();
         if (actionManager == null
-            || actionManager->GetActionStatus(ActionType.EventItem, SelectedMap.DecodedEventItemId) != 0)
+            || actionManager->GetActionStatus(ActionType.EventItem, decodedMapProfile.DecodedEventItemId) != 0)
         {
             StatusText = "等待已解读藏宝图可使用";
             return;
         }
 
-        actionManager->UseAction(ActionType.EventItem, SelectedMap.DecodedEventItemId);
+        actionManager->UseAction(ActionType.EventItem, decodedMapProfile.DecodedEventItemId);
         SetState(LeaderAutomationState.WaitingForFlag, "已打开藏宝图，等待坐标插件创建旗标");
-        diagnostics.Write("车头", $"已使用已解读藏宝图 #{SelectedMap.DecodedEventItemId}，等待新旗标。" );
+        diagnostics.Write("车头", $"已使用已解读藏宝图 #{decodedMapProfile.DecodedEventItemId}，等待新旗标。" );
     }
 
     private void ProcessWaitingForFlag(DateTime now)
@@ -1019,7 +1074,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private void ProcessCombat(DateTime now)
     {
-        if (Plugin.Condition[ConditionFlag.InCombat] || HasTreasureEnemies())
+        if (HasTreasureEnemies())
         {
             noTreasureEnemySinceUtc = DateTime.MinValue;
             StatusText = "寻宝战斗中，由 AE Assist 与 BossMod Reborn 处理";
@@ -1027,7 +1082,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
         }
 
         noTreasureEnemySinceUtc = noTreasureEnemySinceUtc == DateTime.MinValue ? now : noTreasureEnemySinceUtc;
-        if (now - noTreasureEnemySinceUtc < TimeSpan.FromSeconds(2))
+        if (now - noTreasureEnemySinceUtc < TimeSpan.FromMilliseconds(700))
         {
             StatusText = "战斗结束，确认场上敌人已清空";
             return;
@@ -1157,7 +1212,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
         }
 
         var chest = FindDungeonChest(dungeon, now);
-        if (chest != null)
+        var progression = FindDungeonProgressionObject(dungeon, now);
+        if (chest != null && (progression == null || !dungeonInteractionTimes.ContainsKey(GetEntityId(chest))))
         {
             if (ApproachAndInteract(chest, now, "宝物库宝箱", dungeon.InteractionRange))
             {
@@ -1168,7 +1224,6 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        var progression = FindDungeonProgressionObject(dungeon, now);
         if (progression != null)
         {
             var label = progressionObjectNames.GetValueOrDefault(territoryId)?.FirstOrDefault()
@@ -1379,10 +1434,16 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return false;
         }
 
-        targetSystem->OpenObjectInteraction((NativeGameObject*)marketBoard.Address);
+        if (!marketBoard.IsTargetable)
+        {
+            StatusText = "等待市场布告板可交互";
+            return false;
+        }
+
+        var interactionResult = targetSystem->InteractWithObject((NativeGameObject*)marketBoard.Address, false);
         diagnostics.Write(
             "自动补图",
-            $"已直接打开市场布告板：baseId={marketBoard.BaseId}，entity={GetEntityId(marketBoard)}，distance={distance:F1}，targetable={marketBoard.IsTargetable}。" );
+            $"已尝试交互市场布告板：baseId={marketBoard.BaseId}，entity={GetEntityId(marketBoard)}，distance={distance:F1}，result={interactionResult}。" );
         return true;
     }
 
@@ -1595,12 +1656,32 @@ public sealed class LeaderTreasureAutomation : IDisposable
         var manager = InventoryManager.Instance();
         if (manager == null)
         {
-            DecodedMapCount = 0;
-            InventoryMapCount = 0;
+            decodedInventoryLoaded = false;
             return;
         }
 
-        DecodedMapCount = CountItem(manager, InventoryType.KeyItems, SelectedMap.DecodedEventItemId);
+        var keyItems = manager->GetInventoryContainer(InventoryType.KeyItems);
+        if (keyItems == null || !keyItems->IsLoaded)
+        {
+            decodedInventoryLoaded = false;
+            return;
+        }
+
+        decodedInventoryLoaded = true;
+        decodedMapProfile = null;
+        DecodedMapCount = 0;
+        foreach (var profile in TreasureMapCatalog.Profiles.OrderByDescending(profile => profile.ItemId == configuration.LeaderTreasureMapItemId))
+        {
+            var count = CountItem(manager, InventoryType.KeyItems, profile.DecodedEventItemId);
+            if (count == 0)
+            {
+                continue;
+            }
+
+            decodedMapProfile ??= profile;
+            DecodedMapCount += count;
+        }
+
         InventoryMapCount = MainInventories.Sum(type => CountItem(manager, type, configuration.LeaderTreasureMapItemId));
     }
 
@@ -1700,6 +1781,20 @@ public sealed class LeaderTreasureAutomation : IDisposable
             {
                 var baseIds = new HashSet<uint>();
                 var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (dungeon.TerritoryId == 1279)
+                {
+                    baseIds.Add(HypnoslotNameRowId);
+                    names.Add("潜网巡梦");
+                    if (localSheet.TryGetRow(HypnoslotNameRowId, out var knownObject))
+                    {
+                        var localizedName = knownObject.Singular.ToString();
+                        if (!string.IsNullOrWhiteSpace(localizedName))
+                        {
+                            names.Add(localizedName);
+                        }
+                    }
+                }
+
                 foreach (var expectedName in dungeon.EnumerateProgressionObjectNames())
                 {
                     names.Add(expectedName);

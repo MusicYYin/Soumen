@@ -28,7 +28,8 @@ public sealed class TreasureSpotResolver
 
         var raw = target.ToWorld(0f);
         var mapPoints = territoryPoints.Where(point => point.MapId == target.MapId).ToList();
-        var candidates = mapPoints.Count > 0 ? mapPoints : territoryPoints;
+        // A territory may have multiple map floors. Never borrow a spot from another map.
+        var candidates = target.MapId != 0 ? mapPoints : territoryPoints;
         TreasureSpotPoint? best = null;
         foreach (var point in candidates)
         {

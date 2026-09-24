@@ -7,6 +7,7 @@ using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Utility;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Group;
+using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Soumen.Models;
 
@@ -66,6 +67,9 @@ public sealed class MapFlagAutomation : IDisposable
     private bool teleportSawCasting;
     private bool teleportSawLoading;
     private bool partyTeleportSawLoading;
+    private bool ownsDungeonFollow;
+    private Vector3 dungeonFollowDestination;
+    private DateTime lastDungeonFollowUtc = DateTime.MinValue;
     private bool disposed;
     private uint pendingOwnFlagTerritory;
     private uint pendingOwnFlagMap;
@@ -295,6 +299,15 @@ public sealed class MapFlagAutomation : IDisposable
         SetState(AutomationState.WaitingForPlayer, "已接受队友传送，等待传送后重新寻路");
     }
 
+    public bool CanAcceptPartyTeleport()
+        => configuration.Enabled
+            && !paused
+            && configuration.OperatingMode == OperatingMode.Follow
+            && configuration.AcceptPartyTeleportRequests
+            && activeTarget is { IsCrossParty: false } target
+            && Plugin.ClientState.TerritoryType == target.TerritoryId
+            && !TreasureContext.IsTreasureDungeon();
+
     public bool NavigateTo(long targetSerial)
     {
         var target = destinations.Values.FirstOrDefault(entry => entry.Serial == targetSerial);
@@ -312,6 +325,21 @@ public sealed class MapFlagAutomation : IDisposable
 
         SelectTarget(target, isManual: true);
         return true;
+    }
+
+    public void RemoveDestination(long targetSerial)
+    {
+        var entry = destinations.Values.FirstOrDefault(target => target.Serial == targetSerial);
+        if (entry == null)
+        {
+            return;
+        }
+
+        destinations.Remove(entry.SenderKey);
+        if (activeTarget?.Serial == targetSerial)
+        {
+            Stop("已删除当前目的地");
+        }
     }
 
     public float? DistanceTo(MapFlagTarget target)
@@ -389,7 +417,8 @@ public sealed class MapFlagAutomation : IDisposable
             mapLink.YCoord,
             mapLink.PlaceName,
             DateTime.UtcNow,
-            isOwnTreasure);
+            isOwnTreasure,
+            message.LogKind == XivChatType.CrossParty);
 
         var existingOwnTreasure = isOwnTreasure
             ? destinations.Values.FirstOrDefault(existing => existing.IsOwnTreasure && IsNearby(existing, target))
@@ -453,6 +482,19 @@ public sealed class MapFlagAutomation : IDisposable
 
         externalPlugins.RefreshRuntime();
         externalPlugins.SetNavigating(State == AutomationState.Navigating);
+
+        if (configuration.OperatingMode == OperatingMode.Follow && TreasureContext.IsTreasureDungeon())
+        {
+            if (activeTarget != null)
+            {
+                Stop("已进入宝物库，改为跟随队长");
+            }
+
+            ProcessDungeonFollow(now);
+            return;
+        }
+
+        StopDungeonFollow();
 
         if (paused)
         {
@@ -521,6 +563,68 @@ public sealed class MapFlagAutomation : IDisposable
         }
     }
 
+    private unsafe void ProcessDungeonFollow(DateTime now)
+    {
+        if (paused || IsLoadingOrOccupied() || Plugin.Condition[ConditionFlag.InCombat])
+        {
+            StopDungeonFollow();
+            return;
+        }
+
+        var groupManager = GroupManager.Instance();
+        var group = groupManager == null ? null : groupManager->GetGroup();
+        var player = Plugin.ObjectTable.LocalPlayer;
+        if (group == null || player == null || group->PartyLeaderIndex >= group->MemberCount)
+        {
+            StopDungeonFollow();
+            return;
+        }
+
+        var leaderId = group->PartyMembers[(int)group->PartyLeaderIndex].EntityId;
+        var leader = Plugin.ObjectTable.FirstOrDefault(obj => obj.Address != 0
+            && ((GameObject*)obj.Address)->EntityId == leaderId);
+        if (leader == null || leader.Address == player.Address
+            || !vnavmesh.IsInstalled || !vnavmesh.IsReady())
+        {
+            StopDungeonFollow();
+            return;
+        }
+
+        var gap = Vector3.Distance(player.Position, leader.Position);
+        if (gap <= 6f)
+        {
+            StopDungeonFollow();
+            return;
+        }
+
+        if (now - lastDungeonFollowUtc < TimeSpan.FromSeconds(1.2)
+            || ownsDungeonFollow && vnavmesh.IsBusy()
+                && Vector3.Distance(dungeonFollowDestination, leader.Position) <= 5f)
+        {
+            return;
+        }
+
+        StopDungeonFollow();
+        lastDungeonFollowUtc = now;
+        dungeonFollowDestination = leader.Position;
+        ownsDungeonFollow = vnavmesh.MoveCloseTo(leader.Position, fly: false, 4f);
+        if (ownsDungeonFollow)
+        {
+            StatusText = $"宝物库中跟随队长 · {gap:F0}y";
+        }
+    }
+
+    private void StopDungeonFollow()
+    {
+        if (!ownsDungeonFollow)
+        {
+            return;
+        }
+
+        vnavmesh.Stop();
+        ownsDungeonFollow = false;
+    }
+
     private void SelectTarget(MapFlagTarget target, bool isManual)
     {
         activeTarget = target;
@@ -539,7 +643,7 @@ public sealed class MapFlagAutomation : IDisposable
         if (player != null
             && Plugin.ClientState.TerritoryType == target.TerritoryId
             && HorizontalDistance(player.Position, GetResolvedWorldPosition(target, player.Position.Y))
-                <= ArrivalThreshold())
+                <= ArrivalThreshold(target))
         {
             diagnostics.Write(
                 "导航",
@@ -636,7 +740,11 @@ public sealed class MapFlagAutomation : IDisposable
 
     private bool ShouldCompareTeleportRoute()
         => activeTarget != null
-            && configuration.AutoTeleport
+            && (configuration.OperatingMode == OperatingMode.Leader
+                || configuration.AutoTeleport
+                || configuration.AcceptPartyTeleportRequests
+                    && (Plugin.ClientState.TerritoryType != activeTarget.TerritoryId
+                        || activeTarget.IsCrossParty))
             && !Plugin.Condition[ConditionFlag.InCombat]
             && teleportedTargetSerial != activeTarget.Serial
             && routeComparedTargetSerial != activeTarget.Serial;
@@ -751,7 +859,7 @@ public sealed class MapFlagAutomation : IDisposable
         }
 
         var distance = HorizontalDistance(player.Position, destination.Value);
-        if (distance <= ArrivalThreshold())
+        if (distance <= ArrivalThreshold(activeTarget))
         {
             vnavmesh.Stop();
             externalPlugins.SetNavigating(false);
@@ -1457,7 +1565,13 @@ public sealed class MapFlagAutomation : IDisposable
 
         if (treasureSpots.TryResolve(target, out var treasureSpot, out var snapDistance))
         {
-            var resolved = vnavmesh.NearestPoint(treasureSpot, 6f, 4f) ?? treasureSpot;
+            var mesh = vnavmesh.NearestPoint(treasureSpot, 6f, 4f);
+            // Mesh queries can move a spot to a different floor or several yalms sideways.
+            var resolved = mesh is { } point
+                && HorizontalDistance(point, treasureSpot) <= 1.5f
+                && MathF.Abs(point.Y - treasureSpot.Y) <= 2f
+                    ? point
+                    : treasureSpot;
             diagnostics.WriteThrottled(
                 $"treasure-spot-{target.Serial}",
                 "藏宝点",
@@ -1534,8 +1648,16 @@ public sealed class MapFlagAutomation : IDisposable
             ConditionFlag.WatchingCutscene78,
             ConditionFlag.LoggingOut);
 
-    private float ArrivalThreshold()
-        => Math.Max(Math.Clamp(configuration.ArrivalTolerance, 0f, 30f), 0.25f);
+    private float ArrivalThreshold(MapFlagTarget? target = null)
+    {
+        var tolerance = Math.Clamp(configuration.ArrivalTolerance, 0f, 30f);
+        if (target?.IsOwnTreasure == true && treasureSpots.TryResolve(target, out _, out _))
+        {
+            tolerance = Math.Min(tolerance, 2.5f);
+        }
+
+        return Math.Max(tolerance, 0.25f);
+    }
 
     private static float HorizontalDistance(Vector3 left, Vector3 right)
     {

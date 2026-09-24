@@ -16,7 +16,8 @@ public sealed record MapFlagTarget(
     float MapY,
     string PlaceName,
     DateTime ReceivedAtUtc,
-    bool IsOwnTreasure = false)
+    bool IsOwnTreasure = false,
+    bool IsCrossParty = false)
 {
     public string SenderKey
         => IsOwnTreasure

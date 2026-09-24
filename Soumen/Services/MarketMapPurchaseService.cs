@@ -38,7 +38,6 @@ public sealed class MarketMapPurchaseService : IDisposable
     private uint targetItemId;
     private string targetItemName = string.Empty;
     private uint maximumUnitPrice;
-    private uint maximumTotalPrice;
     private int baselineInventoryCount;
     private DateTime deadlineUtc = DateTime.MinValue;
     private DateTime nextActionUtc = DateTime.MinValue;
@@ -77,12 +76,11 @@ public sealed class MarketMapPurchaseService : IDisposable
         Plugin.MarketBoard.ItemPurchased -= OnItemPurchased;
     }
 
-    public void Begin(uint itemId, string itemName, uint maxUnitPrice, uint maxTotalPrice)
+    public void Begin(uint itemId, string itemName, uint maxUnitPrice)
     {
         targetItemId = itemId;
         targetItemName = itemName;
         maximumUnitPrice = maxUnitPrice;
-        maximumTotalPrice = maxTotalPrice;
         baselineInventoryCount = ReadMainInventoryCount(itemId);
         PurchasedUnitPrice = 0;
         PurchasedTotalPrice = 0;
@@ -312,12 +310,6 @@ public sealed class MarketMapPurchaseService : IDisposable
         }
 
         var totalCost = (long)listing.PricePerUnit + listing.TotalTax;
-        if (totalCost > maximumTotalPrice)
-        {
-            Fail($"含税价格 {totalCost:N0} Gil，超过本轮剩余预算 {maximumTotalPrice:N0} Gil");
-            return;
-        }
-
         var manager = InventoryManager.Instance();
         var gil = manager == null ? -1 : manager->GetInventoryItemCount(1);
         if (gil < totalCost)
