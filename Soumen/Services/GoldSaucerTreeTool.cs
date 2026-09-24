@@ -21,6 +21,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
     private readonly Configuration configuration;
     private readonly DiagnosticLogger diagnostics;
     private GoldSaucerPacketTrace? packetTrace;
+    private GoldSaucerFastTree? fastTree;
     private readonly List<HitResult> results = [];
     private DateTime nextClickUtc;
     private DateTime pendingSinceUtc;
@@ -54,8 +55,45 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
         ? "封包诊断未开启"
         : packetTrace.Available ? "封包钩子已安装（等待实机验证）" : packetTrace.AvailabilityReason;
 
+    public bool FastEnabled => fastTree?.IsEnabled == true;
+    public string FastStatus => fastTree?.Status ?? "已关闭";
+
+    public void SetFastEnabled(bool value)
+    {
+        if (value)
+        {
+            if (configuration.GoldSaucerTreeEnabled)
+            {
+                SetEnabled(false);
+            }
+
+            var trace = EnsurePacketTrace();
+            trace.SetEnabled(true);
+            if (!trace.Available)
+            {
+                diagnostics.Write("砍树高速", trace.AvailabilityReason);
+                return;
+            }
+
+            fastTree ??= new GoldSaucerFastTree(trace, diagnostics);
+            fastTree.SelectDifficulty(configuration.GoldSaucerTreeDifficulty);
+        }
+        else
+        {
+            fastTree?.SetEnabled(false);
+            packetTrace?.ClearSender();
+            packetTrace?.SetEnabled(configuration.GoldSaucerTreePacketTraceEnabled);
+        }
+
+        fastTree?.SetEnabled(value);
+    }
+
     public void SetEnabled(bool enabled)
     {
+        if (enabled && FastEnabled)
+        {
+            SetFastEnabled(false);
+        }
         configuration.GoldSaucerTreeEnabled = enabled;
         configuration.Save();
         HasError = false;
@@ -68,6 +106,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
     {
         configuration.GoldSaucerTreeDifficulty = Math.Clamp(difficulty, 0, DifficultyNodes.Length - 1);
         configuration.Save();
+        fastTree?.SelectDifficulty(configuration.GoldSaucerTreeDifficulty);
     }
 
     public void SetPacketTraceEnabled(bool enabled)
@@ -80,7 +119,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
         }
         else
         {
-            packetTrace?.SetEnabled(false);
+            packetTrace?.SetEnabled(FastEnabled);
         }
     }
 
@@ -90,12 +129,14 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
     public void Dispose()
     {
         Plugin.Framework.Update -= OnUpdate;
+        fastTree?.Dispose();
         packetTrace?.Dispose();
     }
 
     private void OnUpdate(IFramework _)
     {
         packetTrace?.Drain();
+        fastTree?.Update();
         if (!configuration.GoldSaucerTreeEnabled)
         {
             return;

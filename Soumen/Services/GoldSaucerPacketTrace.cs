@@ -33,6 +33,9 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
     private DateTime? markedAt;
     private string markedStage = string.Empty;
     private volatile bool enabled;
+    private nint zoneClient;
+
+    internal event Action<PacketRecord>? Observed;
 
     private delegate void ReceivePacketDelegate(PacketDispatcher* dispatcher, uint targetId, byte* packet);
     private delegate bool SendPacketDelegate(nint zoneClient, nint packet, uint a3, uint a4, bool a5);
@@ -77,6 +80,7 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
     }
 
     public bool Available { get; }
+    internal bool CanSend => enabled && Available && zoneClient != 0;
     public string AvailabilityReason { get; } = string.Empty;
     public IReadOnlyCollection<string> Recent => recent;
 
@@ -112,6 +116,8 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
     {
         while (pending.TryDequeue(out var record))
         {
+            try { Observed?.Invoke(record); }
+            catch (Exception exception) { diagnostics.Write("砍树封包", $"动作处理异常：{exception}"); }
             var label = record.Opcode switch
             {
                 StartUp => "UP_EventStart",
@@ -176,9 +182,38 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
     public void Dispose()
     {
         enabled = false;
+        zoneClient = 0;
         sendHook?.Dispose();
         receiveHook?.Dispose();
     }
+
+    /// <summary>
+    /// Builds a fresh 36-byte event payload in the game's 32-byte outgoing packet envelope.
+    /// Only called on the framework thread after a real EventStart has supplied ZoneClient.
+    /// </summary>
+    internal bool SendFastAction(uint category, uint param1 = 0, bool finish = false)
+    {
+        if (!CanSend || sendHook == null || Plugin.ClientState.TerritoryType != 388)
+        {
+            return false;
+        }
+
+        const int packetSize = 68;
+        var packet = stackalloc byte[packetSize];
+        new Span<byte>(packet, packetSize).Clear();
+        *(ushort*)packet = finish ? FinishUp : ActionUp;
+        *(uint*)(packet + 8) = packetSize - 32;
+        *(uint*)(packet + 32) = EventId;
+        *(uint*)(packet + 36) = category;
+        *(uint*)(packet + 40) = param1;
+        var result = sendHook.Original(zoneClient, (nint)packet, 0, 0, false);
+        pending.Enqueue(new PacketRecord("发送", finish ? FinishUp : ActionUp,
+            EventId, category, $"param1={param1} length={packetSize} sendArgs=0/0/False "
+                + $"result={result} builtBy=Soumen", 0, 0, 0));
+        return result;
+    }
+
+    internal void ClearSender() => zoneClient = 0;
 
     private bool Send(nint zoneClient, nint packet, uint a3, uint a4, bool a5)
     {
@@ -194,6 +229,10 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
                     var id = opcode == StartUp ? *(uint*)(body + 8) : *(uint*)body;
                     if (id == EventId)
                     {
+                        if (opcode == StartUp)
+                        {
+                            this.zoneClient = zoneClient;
+                        }
                         var claimedLength = *(uint*)((byte*)packet + 8) + 32;
                         var capturedLength = claimedLength is >= 52 and <= 80 ? (int)claimedLength : 52;
                         var argument = opcode == StartUp ? 0U : *(uint*)(body + 8);
@@ -201,7 +240,8 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
                             opcode == StartUp ? *(uint*)(body + 12) : *(uint*)(body + 4),
                             $"param1={argument} length={claimedLength} "
                             + $"sendArgs={a3}/{a4}/{a5} "
-                            + $"raw={Convert.ToHexString(new ReadOnlySpan<byte>((byte*)packet, capturedLength))}");
+                            + $"raw={Convert.ToHexString(new ReadOnlySpan<byte>((byte*)packet, capturedLength))}",
+                            0, 0, 0);
                     }
                 }
             }
@@ -231,7 +271,9 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
                 if (opcode is StartDown or PlayDown or FirstActionDown or OtherActionDown or AlternateActionDown or FinishDown)
                 {
                     var isResult = opcode is FirstActionDown or OtherActionDown or AlternateActionDown;
-                    if (!isResult || *(uint*)(originalPacket + 32) == EventId)
+                    if ((!isResult && opcode != PlayDown)
+                        || (opcode == PlayDown && *(uint*)(originalPacket + 40) == EventId)
+                        || (isResult && *(uint*)(originalPacket + 32) == EventId))
                     {
                         var resultParam = isResult ? *(uint*)(originalPacket + 40) : 0;
                         var first = isResult ? *(uint*)(originalPacket + 44) : 0;
@@ -252,7 +294,8 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
                                     + $"neko[28]={third} ({state}) "
                                 : string.Empty)
                             + $"raw={Convert.ToHexString(new ReadOnlySpan<byte>(originalPacket,
-                                opcode is PlayDown or FirstActionDown or OtherActionDown or AlternateActionDown ? 64 : 32))}"));
+                                opcode is PlayDown or FirstActionDown or OtherActionDown or AlternateActionDown ? 64 : 32))}",
+                            first, second, third));
                     }
                 }
             }
@@ -274,6 +317,7 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
         diagnostics.Write("砍树封包", message);
     }
 
-    private readonly record struct PacketRecord(string Direction, ushort Opcode, uint EventId, uint Category, string Header);
+    internal readonly record struct PacketRecord(string Direction, ushort Opcode, uint EventId, uint Category,
+        string Header, uint First, uint Second, byte Third);
     private readonly record struct ExpectedReply(ushort Opcode, uint Category, DateTime SentUtc);
 }
