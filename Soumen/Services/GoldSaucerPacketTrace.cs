@@ -7,7 +7,7 @@ using FFXIVClientStructs.FFXIV.Client.Network;
 namespace Soumen.Services;
 
 /// <summary>
-/// Observes the same native packet path used by Neko. This class never modifies or sends packets.
+/// Observes the native packet path and sends opt-in minigame actions on the framework thread.
 /// Keep the hook callbacks small: decoding and file writes happen on the framework thread.
 /// </summary>
 public sealed unsafe class GoldSaucerPacketTrace : IDisposable

@@ -125,7 +125,7 @@ public sealed class MainWindow : Window
     {
         ImGui.Spacing();
         ImGui.TextColored(Accent, "金蝶 · 砍树");
-        ImGui.TextWrapped("普通模式通过界面点击。高速模式在金蝶手动触发小游戏后，根据服务器回包完成一局；继续挑战需要手动开始下一局。");
+        ImGui.TextWrapped("普通模式通过界面点击。高速模式在金蝶手动触发小游戏后，根据服务器回包自动挥击和续局，最多六回合。");
 
         var enabled = configuration.GoldSaucerTreeEnabled;
         if (ImGui.Checkbox("自动砍树##GoldSaucerTree", ref enabled))
