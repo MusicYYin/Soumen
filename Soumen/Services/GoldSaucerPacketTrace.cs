@@ -271,7 +271,9 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
                 if (opcode is StartDown or PlayDown or FirstActionDown or OtherActionDown or AlternateActionDown or FinishDown)
                 {
                     var isResult = opcode is FirstActionDown or OtherActionDown or AlternateActionDown;
-                    if (!isResult || *(uint*)(originalPacket + 32) == EventId)
+                    if ((!isResult && opcode != PlayDown)
+                        || (opcode == PlayDown && *(uint*)(originalPacket + 40) == EventId)
+                        || (isResult && *(uint*)(originalPacket + 32) == EventId))
                     {
                         var resultParam = isResult ? *(uint*)(originalPacket + 40) : 0;
                         var first = isResult ? *(uint*)(originalPacket + 44) : 0;
