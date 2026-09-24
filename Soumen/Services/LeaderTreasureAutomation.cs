@@ -25,6 +25,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private const ushort LimsaLominsaLowerDecksTerritoryId = 129;
     private static readonly uint[] MarketBoardDataIds = [2000402, 2000442];
     private const float ObjectApproachRange = 3.2f;
+    private const float MarketBoardInteractionRange = 2.9f;
     private const float OutdoorObjectSearchRange = 55f;
 
     private static readonly InventoryType[] MainInventories =
@@ -494,7 +495,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
         SetState(LeaderAutomationState.Waiting, $"任务道具和背包中都没有可用的 {SelectedMapName}");
     }
 
-    private void BeginDecipher(DateTime now)
+    private unsafe void BeginDecipher(DateTime now)
     {
         if (now - lastActionUtc < ActionRetryInterval)
         {
@@ -502,11 +503,35 @@ public sealed class LeaderTreasureAutomation : IDisposable
         }
 
         lastActionUtc = now;
+        var actionManager = ActionManager.Instance();
+        if (actionManager == null)
+        {
+            StatusText = "等待游戏动作管理器就绪后解读";
+            return;
+        }
+
+        var status = actionManager->GetActionStatus(ActionType.GeneralAction, 19);
+        if (status != 0)
+        {
+            StatusText = "目前无法使用解读技能";
+            diagnostics.WriteThrottled("decipher-action-unavailable", "车头",
+                $"解读技能不可用：GeneralAction#19，status={status}，背包数量={InventoryMapCount}。",
+                TimeSpan.FromSeconds(5));
+            return;
+        }
+
+        if (!actionManager->UseAction(ActionType.GeneralAction, 19))
+        {
+            StatusText = "解读技能未成功发动，正在重试";
+            diagnostics.WriteThrottled("decipher-action-failed", "车头",
+                "解读技能 GeneralAction#19 返回 false。", TimeSpan.FromSeconds(5));
+            return;
+        }
+
         decipherInventoryCountBefore = InventoryMapCount;
         decipherMenuSelectionIssued = false;
-        Plugin.CommandManager.ProcessCommand("/gaction decipher");
-        SetState(LeaderAutomationState.DecipheringMap, $"正在解读 {SelectedMapName}");
-        diagnostics.Write("车头", $"已打开解读菜单，目标物品 #{configuration.LeaderTreasureMapItemId}，背包数量={InventoryMapCount}。" );
+        SetState(LeaderAutomationState.DecipheringMap, $"正在等待 {SelectedMapName} 的解读选择菜单");
+        diagnostics.Write("车头", $"已发动解读技能 GeneralAction#19，目标物品 #{configuration.LeaderTreasureMapItemId}，背包数量={InventoryMapCount}。" );
     }
 
     private void BeginRestock()
@@ -815,13 +840,14 @@ public sealed class LeaderTreasureAutomation : IDisposable
                         continue;
                     }
 
-                    iconAddon->AtkUnitBase.FireCallbackInt(index);
+                    FireDecipherChoice(&iconAddon->AtkUnitBase, index);
                     CompleteDecipherSelection(now, index, text, "SelectIconString");
                     return;
                 }
 
                 diagnostics.WriteThrottled("decipher-icon-menu", "车头",
-                    $"SelectIconString#{addonIndex} 已显示，但未匹配藏宝图“{targetName}”。", TimeSpan.FromSeconds(2));
+                    $"SelectIconString#{addonIndex} 已显示，条目数={menu.EntryCount}；未匹配“{targetName}”。",
+                    TimeSpan.FromSeconds(2));
             }
 
             var stringAddon = Plugin.GameGui.GetAddonByName<AddonSelectString>("SelectString", addonIndex);
@@ -851,11 +877,24 @@ public sealed class LeaderTreasureAutomation : IDisposable
             }
 
             diagnostics.WriteThrottled("decipher-string-menu", "车头",
-                $"SelectString#{addonIndex} 已显示，但未匹配藏宝图“{targetName}”。", TimeSpan.FromSeconds(2));
+                $"SelectString#{addonIndex} 已显示，条目数={stringMenu.EntryCount}；未匹配“{targetName}”。",
+                TimeSpan.FromSeconds(2));
         }
 
         diagnostics.WriteThrottled("decipher-menu-missing", "车头",
             $"等待解读选择菜单 SelectIconString/SelectString，物品“{targetName}”。", TimeSpan.FromSeconds(3));
+    }
+
+    private static unsafe void FireDecipherChoice(AtkUnitBase* addon, int index)
+    {
+        var values = stackalloc AtkValue[2];
+        values[0] = default;
+        values[0].Type = AtkValueType.Bool;
+        values[0].Byte = 1;
+        values[1] = default;
+        values[1].Type = AtkValueType.Int;
+        values[1].Int = index;
+        addon->FireCallback(2, values);
     }
 
     private static bool MatchesSelectedMap(string text, string targetName, string normalizedTarget)
@@ -1392,8 +1431,13 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return false;
         }
 
-        var distance = HorizontalDistance(player.Position, marketBoard.Position);
-        if (distance > ObjectApproachRange)
+        var distance = Vector3.Distance(player.Position, marketBoard.Position);
+        diagnostics.WriteThrottled("market-board-position", "自动补图",
+            $"找到市场布告板：baseId={marketBoard.BaseId}，entity={GetEntityId(marketBoard)}，"
+                + $"position={FormatPosition(marketBoard.Position)}，玩家={FormatPosition(player.Position)}，"
+                + $"三维距离={distance:F1}y，targetable={marketBoard.IsTargetable}。",
+            TimeSpan.FromSeconds(5));
+        if (distance > MarketBoardInteractionRange)
         {
             if (!vnavmesh.IsInstalled || !vnavmesh.IsReady())
             {
@@ -1414,7 +1458,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
                 ownsNavigation = vnavmesh.MoveCloseTo(
                     marketBoard.Position,
                     fly: false,
-                    ObjectApproachRange - 0.4f);
+                    2.3f);
             }
 
             StatusText = $"正在前往海都市场布告板 · {distance:F0}y";
@@ -1440,6 +1484,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return false;
         }
 
+        Plugin.TargetManager.Target = marketBoard;
         var interactionResult = targetSystem->InteractWithObject((NativeGameObject*)marketBoard.Address, false);
         diagnostics.Write(
             "自动补图",
@@ -1597,8 +1642,10 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private IGameObject? FindMarketBoard()
         => Plugin.ObjectTable
-            .Where(obj => obj.Address != 0 && MarketBoardDataIds.Contains(obj.BaseId))
-            .OrderBy(obj => HorizontalDistance(Plugin.ObjectTable.LocalPlayer?.Position ?? obj.Position, obj.Position))
+            .Where(obj => obj.Address != 0 && (MarketBoardDataIds.Contains(obj.BaseId)
+                || obj.IsTargetable && (obj.Name.TextValue.Contains("市场布告板", StringComparison.OrdinalIgnoreCase)
+                    || obj.Name.TextValue.Equals("Market Board", StringComparison.OrdinalIgnoreCase))))
+            .OrderBy(obj => Vector3.Distance(Plugin.ObjectTable.LocalPlayer?.Position ?? obj.Position, obj.Position))
             .FirstOrDefault();
 
     private unsafe bool IsTreasureHuntObject(IGameObject gameObject, ObjectKind objectKind)
