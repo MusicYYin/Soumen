@@ -157,6 +157,7 @@ internal sealed class GoldSaucerFastTree : IDisposable
     private void Stop(string reason)
     {
         enabled = false;
+        trace.ClearSender();
         Reset(reason);
     }
 
