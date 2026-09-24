@@ -35,7 +35,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
     {
         this.configuration = configuration;
         this.diagnostics = diagnostics;
-        if (configuration.GoldSaucerTreeEnabled || configuration.GoldSaucerTreePacketTraceEnabled)
+        if (configuration.GoldSaucerTreePacketTraceEnabled)
         {
             EnsurePacketTrace().SetEnabled(true);
         }
@@ -58,14 +58,6 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
     {
         configuration.GoldSaucerTreeEnabled = enabled;
         configuration.Save();
-        if (enabled || configuration.GoldSaucerTreePacketTraceEnabled)
-        {
-            EnsurePacketTrace().SetEnabled(true);
-        }
-        else
-        {
-            packetTrace?.SetEnabled(false);
-        }
         HasError = false;
         ResetRound();
         Status = enabled ? "等待砍树小游戏界面" : "已关闭";
@@ -82,7 +74,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
     {
         configuration.GoldSaucerTreePacketTraceEnabled = enabled;
         configuration.Save();
-        if (enabled || configuration.GoldSaucerTreeEnabled)
+        if (enabled)
         {
             EnsurePacketTrace().SetEnabled(true);
         }

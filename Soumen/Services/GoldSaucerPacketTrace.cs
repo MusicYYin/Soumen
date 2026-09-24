@@ -43,11 +43,25 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
         try
         {
             // PacketDispatcher.OnReceivePacket is virtual slot 1 (FFXIVClientStructs).
-            var receiveAddress = Marshal.ReadIntPtr((nint)PacketDispatcher.StaticVirtualTablePointer + nint.Size);
+            var virtualTableAddress = (nint)PacketDispatcher.StaticVirtualTablePointer;
+            if (virtualTableAddress == 0)
+            {
+                throw new InvalidOperationException("PacketDispatcher virtual table was not resolved.");
+            }
+
+            var receiveAddress = Marshal.ReadIntPtr(virtualTableAddress + nint.Size);
+            if (receiveAddress == 0)
+            {
+                throw new InvalidOperationException("PacketDispatcher receive function was not resolved.");
+            }
             receiveHook = Plugin.Interop.HookFromAddress<ReceivePacketDelegate>(receiveAddress, Receive);
             // Same ZoneClient.SendPacket signature used by the user's NPATool.
             var sendAddress = Plugin.SigScanner.ScanText(
                 "48 83 EC ?? 48 8B 89 ?? ?? ?? ?? 48 85 C9 74 ?? 44 89 44 24 ?? 4C 8D 44 24 ?? 44 89 4C 24 ?? 44 0F B6 4C 24");
+            if (sendAddress == 0)
+            {
+                throw new InvalidOperationException("ZoneClient send function was not resolved.");
+            }
             sendHook = Plugin.Interop.HookFromAddress<SendPacketDelegate>(sendAddress, Send);
             receiveHook.Enable();
             sendHook.Enable();
