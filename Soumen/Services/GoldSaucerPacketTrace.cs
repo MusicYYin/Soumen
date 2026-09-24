@@ -186,6 +186,7 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
                         observation = new PacketRecord("发送", opcode, id,
                             opcode == StartUp ? *(uint*)(body + 12) : *(uint*)(body + 4),
                             $"param1={argument} length={claimedLength} "
+                            + $"sendArgs={a3}/{a4}/{a5} "
                             + $"raw={Convert.ToHexString(new ReadOnlySpan<byte>((byte*)packet, capturedLength))}");
                     }
                 }
