@@ -13,16 +13,19 @@ public sealed unsafe class PartyTeleportService : IDisposable
 
     private readonly Configuration configuration;
     private readonly System.Action onTeleportAccepted;
+    private readonly System.Func<bool> canAcceptTeleport;
     private readonly DiagnosticLogger diagnostics;
     private readonly string[] promptFragments;
 
     public PartyTeleportService(
         Configuration configuration,
         System.Action onTeleportAccepted,
+        System.Func<bool> canAcceptTeleport,
         DiagnosticLogger diagnostics)
     {
         this.configuration = configuration;
         this.onTeleportAccepted = onTeleportAccepted;
+        this.canAcceptTeleport = canAcceptTeleport;
         this.diagnostics = diagnostics;
         promptFragments = LoadPromptFragments();
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnSelectYesnoPostSetup);
@@ -51,7 +54,7 @@ public sealed unsafe class PartyTeleportService : IDisposable
             return;
         }
 
-        if (configuration.AcceptPartyTeleportRequests)
+        if (canAcceptTeleport())
         {
             Plugin.Log.Information("Accepting party teleport request: {Prompt}", prompt);
             diagnostics.Write("队友传送", "已接受队友传送邀请。" );

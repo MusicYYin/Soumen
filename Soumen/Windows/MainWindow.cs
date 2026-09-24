@@ -318,7 +318,7 @@ public sealed class MainWindow : Window
         ImGui.TableSetupColumn("Content ID", ImGuiTableColumnFlags.WidthStretch, 1.1f);
         ImGui.TableSetupColumn("坐标", ImGuiTableColumnFlags.WidthStretch, 1.5f);
         ImGui.TableSetupColumn("距离", ImGuiTableColumnFlags.WidthFixed, 74f * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("操作", ImGuiTableColumnFlags.WidthFixed, 120f * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("操作", ImGuiTableColumnFlags.WidthFixed, 170f * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
 
         foreach (var target in targets)
@@ -359,11 +359,16 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
             ImGui.PushID(target.Serial.GetHashCode());
             ImGui.BeginDisabled(active && automation.IsManualSelection);
-            if (ImGui.Button(active && automation.IsManualSelection ? "已锁定" : "导航至此", new Vector2(-1f, 0f)))
+            if (ImGui.Button(active && automation.IsManualSelection ? "已锁定" : "导航至此"))
             {
                 automation.NavigateTo(target.Serial);
             }
             ImGui.EndDisabled();
+            ImGui.SameLine();
+            if (ImGui.Button("删除"))
+            {
+                automation.RemoveDestination(target.Serial);
+            }
             ImGui.PopID();
         }
 
@@ -438,13 +443,6 @@ public sealed class MainWindow : Window
                 configuration.Save();
             }
 
-            var maximumRestockCost = (int)configuration.LeaderMapMaximumRestockCost;
-            ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputInt("两张最高总价（含税）", ref maximumRestockCost, 2_000, 20_000))
-            {
-                configuration.LeaderMapMaximumRestockCost = (uint)Math.Clamp(maximumRestockCost, 2_000, 19_999_998);
-                configuration.Save();
-            }
             ImGui.EndDisabled();
 
             ImGui.TextColored(Muted, leaderAutomation.SelectedMap.CanMarketRestock
@@ -494,6 +492,7 @@ public sealed class MainWindow : Window
                 configuration.AcceptPartyTeleportRequests = true;
                 configuration.Save();
             }
+            ImGui.TextColored(Muted, "正常导航中接受同地图普通小队的传送；其余情况自行传送。车头始终自行传送。");
         }
 
         ImGui.Spacing();
@@ -563,7 +562,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.6.1");
+        DrawSectionTitle("Soumen 0.4.7.0");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
