@@ -57,6 +57,20 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
 
     public bool FastEnabled => fastTree?.IsEnabled == true;
     public string FastStatus => fastTree?.Status ?? "已关闭";
+    public bool FastBatchRunning => fastTree?.IsBatchRunning == true;
+    public bool FastBatchCanStop => fastTree?.CanStopBatch == true;
+
+    public void StartFastBatch(int games)
+    {
+        if (!FastEnabled)
+        {
+            SetFastEnabled(true);
+        }
+
+        fastTree?.StartBatch(games);
+    }
+
+    public void StopFastBatch() => fastTree?.StopBatch();
 
     public void SetFastEnabled(bool value)
     {

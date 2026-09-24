@@ -77,6 +77,8 @@ public sealed class Configuration : IPluginConfiguration
     // 0 = Titan, 1 = Morbol, 2 = Cactuar.
     public int GoldSaucerTreeDifficulty { get; set; } = 0;
 
+    public int GoldSaucerTreeAutoGames { get; set; } = 3;
+
     public float StuckSeconds { get; set; } = 8f;
 
     public float ArrivalTolerance { get; set; } = 8f;
@@ -144,6 +146,7 @@ public sealed class Configuration : IPluginConfiguration
         configuration.StuckSeconds = Math.Clamp(configuration.StuckSeconds, 1f, 30f);
         configuration.ArrivalTolerance = Math.Clamp(configuration.ArrivalTolerance, 0f, 30f);
         configuration.GoldSaucerTreeDifficulty = Math.Clamp(configuration.GoldSaucerTreeDifficulty, 0, 2);
+        configuration.GoldSaucerTreeAutoGames = Math.Clamp(configuration.GoldSaucerTreeAutoGames, 1, 100);
         configuration.Version = 13;
         configuration.Save();
         return configuration;

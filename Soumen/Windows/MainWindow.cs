@@ -125,8 +125,9 @@ public sealed class MainWindow : Window
     {
         ImGui.Spacing();
         ImGui.TextColored(Accent, "金蝶 · 砍树");
-        ImGui.TextWrapped("普通模式通过界面点击。高速模式在金蝶手动触发小游戏后，根据服务器回包自动挥击和续局，最多六回合。");
+        ImGui.TextWrapped("普通模式通过界面点击。高速模式可手动开局，也可设置局数后自动开局；每局最多六回合。");
 
+        ImGui.BeginDisabled(goldSaucerTreeTool.FastBatchRunning);
         var enabled = configuration.GoldSaucerTreeEnabled;
         if (ImGui.Checkbox("自动砍树##GoldSaucerTree", ref enabled))
         {
@@ -144,10 +145,32 @@ public sealed class MainWindow : Window
         {
             goldSaucerTreeTool.SetFastEnabled(fast);
         }
+        ImGui.EndDisabled();
+
+        var games = configuration.GoldSaucerTreeAutoGames;
+        if (ImGui.InputInt("自动挑战局数##GoldSaucerTree", ref games))
+        {
+            configuration.GoldSaucerTreeAutoGames = Math.Clamp(games, 1, 100);
+            configuration.Save();
+        }
+
+        ImGui.BeginDisabled(goldSaucerTreeTool.FastBatchRunning || Plugin.ClientState.TerritoryType != 388);
+        if (ImGui.Button("开始自动挑战##GoldSaucerTree"))
+        {
+            goldSaucerTreeTool.StartFastBatch(configuration.GoldSaucerTreeAutoGames);
+        }
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.BeginDisabled(!goldSaucerTreeTool.FastBatchCanStop);
+        if (ImGui.Button("停止自动挑战##GoldSaucerTree"))
+        {
+            goldSaucerTreeTool.StopFastBatch();
+        }
+        ImGui.EndDisabled();
 
         ImGui.TextColored(goldSaucerTreeTool.FastStatus.StartsWith("已停止") ? Danger : Muted,
             goldSaucerTreeTool.FastStatus);
-        ImGui.TextWrapped("高速模式只适配已抓包的 2026.09.15.0000.0000：先选难度，再手动与 NPC 交互开启小游戏。遇到异常可关闭开关或按 ESC。普通模式与高速模式不会同时运行。");
+        ImGui.TextWrapped("高速模式仅适配已抓包的 2026.09.15.0000.0000。先站在金蝶砍树位置选难度，再按开始；会在当前局结算后自动开启下一局。停止按钮会结束当前局并取消剩余局数。");
 
         ImGui.TextColored(goldSaucerTreeTool.HasError ? Danger : Muted, goldSaucerTreeTool.Status);
         var traceEnabled = configuration.GoldSaucerTreePacketTraceEnabled;

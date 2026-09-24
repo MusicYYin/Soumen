@@ -94,6 +94,7 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
 
         if (!value)
         {
+            zoneClient = 0;
             waiting.Clear();
             markedAt = null;
         }
@@ -188,8 +189,33 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
     }
 
     /// <summary>
+    /// Builds a fresh 32-byte start payload for the current local player's object ID.
+    /// The send hook must first have observed a valid ZoneClient in this zone.
+    /// </summary>
+    internal bool SendFastStart(uint targetId)
+    {
+        if (!CanSend || sendHook == null || Plugin.ClientState.TerritoryType != 388 || targetId == 0)
+        {
+            return false;
+        }
+
+        const int packetSize = 64;
+        var packet = stackalloc byte[packetSize];
+        new Span<byte>(packet, packetSize).Clear();
+        *(ushort*)packet = StartUp;
+        *(uint*)(packet + 8) = packetSize - 32;
+        *(uint*)(packet + 32) = targetId;
+        *(uint*)(packet + 40) = EventId;
+        var result = sendHook.Original(zoneClient, (nint)packet, 0, 0, true);
+        pending.Enqueue(new PacketRecord("发送", StartUp, EventId, 0,
+            $"targetId=0x{targetId:X8} length={packetSize} sendArgs=0/0/True "
+                + $"result={result} builtBy=Soumen", 0, 0, 0));
+        return result;
+    }
+
+    /// <summary>
     /// Builds a fresh 36-byte event payload in the game's 32-byte outgoing packet envelope.
-    /// Only called on the framework thread after a real EventStart has supplied ZoneClient.
+    /// Called on the framework thread after a valid ZoneClient has been observed.
     /// </summary>
     internal bool SendFastAction(uint category, uint param1 = 0, bool finish = false)
     {
@@ -218,6 +244,13 @@ public sealed unsafe class GoldSaucerPacketTrace : IDisposable
     private bool Send(nint zoneClient, nint packet, uint a3, uint a4, bool a5)
     {
         PacketRecord? observation = null;
+        // ZoneClient also sends ordinary game traffic. Learning its pointer from
+        // that traffic allows the first minigame to start without a manual click.
+        if (enabled && zoneClient != 0)
+        {
+            this.zoneClient = zoneClient;
+        }
+
         if (enabled && packet != 0)
         {
             try
