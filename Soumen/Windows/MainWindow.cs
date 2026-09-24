@@ -140,6 +140,22 @@ public sealed class MainWindow : Window
         }
 
         ImGui.TextColored(goldSaucerTreeTool.HasError ? Danger : Muted, goldSaucerTreeTool.Status);
+        var traceEnabled = configuration.GoldSaucerTreePacketTraceEnabled;
+        if (ImGui.Checkbox("记录砍树封包（可单独使用）##GoldSaucerTree", ref traceEnabled))
+        {
+            goldSaucerTreeTool.SetPacketTraceEnabled(traceEnabled);
+        }
+
+        ImGui.TextColored(Muted, goldSaucerTreeTool.PacketTraceStatus);
+        ImGui.TextColored(Muted, $"当前区域 ID：{Plugin.ClientState.TerritoryType}；Neko 原版要求 388。");
+        if (ImGui.CollapsingHeader("砍树封包诊断##GoldSaucerTree"))
+        {
+            ImGui.TextWrapped("记录发送事件、接收结果和等待超时。设置中开启诊断模式后，详细记录写入 diagnostic.log；同一局中不同动作的结果可使用不同 opcode。");
+            foreach (var packet in goldSaucerTreeTool.RecentPackets)
+            {
+                ImGui.TextWrapped(packet);
+            }
+        }
         ImGui.Spacing();
         ImGui.Separator();
         ImGui.TextColored(Muted, "Neko 其他功能仍在逐项适配；这里只显示已经接入的功能。");

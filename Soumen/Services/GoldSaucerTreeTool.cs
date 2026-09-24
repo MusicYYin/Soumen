@@ -20,6 +20,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
 
     private readonly Configuration configuration;
     private readonly DiagnosticLogger diagnostics;
+    private GoldSaucerPacketTrace? packetTrace;
     private readonly List<HitResult> results = [];
     private DateTime nextClickUtc;
     private DateTime pendingSinceUtc;
@@ -34,6 +35,10 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
     {
         this.configuration = configuration;
         this.diagnostics = diagnostics;
+        if (configuration.GoldSaucerTreeEnabled || configuration.GoldSaucerTreePacketTraceEnabled)
+        {
+            EnsurePacketTrace().SetEnabled(true);
+        }
         ResetRound();
         Status = configuration.GoldSaucerTreeEnabled ? "等待砍树小游戏界面" : "已关闭";
         Plugin.Framework.Update += OnUpdate;
@@ -43,10 +48,24 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
 
     public bool HasError { get; private set; }
 
+    public IReadOnlyCollection<string> RecentPackets => packetTrace?.Recent ?? Array.Empty<string>();
+
+    public string PacketTraceStatus => packetTrace == null
+        ? "封包诊断未开启"
+        : packetTrace.Available ? "封包钩子已安装（等待实机验证）" : packetTrace.AvailabilityReason;
+
     public void SetEnabled(bool enabled)
     {
         configuration.GoldSaucerTreeEnabled = enabled;
         configuration.Save();
+        if (enabled || configuration.GoldSaucerTreePacketTraceEnabled)
+        {
+            EnsurePacketTrace().SetEnabled(true);
+        }
+        else
+        {
+            packetTrace?.SetEnabled(false);
+        }
         HasError = false;
         ResetRound();
         Status = enabled ? "等待砍树小游戏界面" : "已关闭";
@@ -59,10 +78,32 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
         configuration.Save();
     }
 
-    public void Dispose() => Plugin.Framework.Update -= OnUpdate;
+    public void SetPacketTraceEnabled(bool enabled)
+    {
+        configuration.GoldSaucerTreePacketTraceEnabled = enabled;
+        configuration.Save();
+        if (enabled || configuration.GoldSaucerTreeEnabled)
+        {
+            EnsurePacketTrace().SetEnabled(true);
+        }
+        else
+        {
+            packetTrace?.SetEnabled(false);
+        }
+    }
+
+    private GoldSaucerPacketTrace EnsurePacketTrace()
+        => packetTrace ??= new GoldSaucerPacketTrace(diagnostics);
+
+    public void Dispose()
+    {
+        Plugin.Framework.Update -= OnUpdate;
+        packetTrace?.Dispose();
+    }
 
     private void OnUpdate(IFramework _)
     {
+        packetTrace?.Drain();
         if (!configuration.GoldSaucerTreeEnabled)
         {
             return;
@@ -108,6 +149,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
         {
             configuration.GoldSaucerTreeEnabled = false;
             configuration.Save();
+            packetTrace?.SetEnabled(configuration.GoldSaucerTreePacketTraceEnabled);
             HasError = true;
             ResetRound();
             Status = "已停止：小游戏界面与预期不符，请检查客户端版本和日志";
@@ -133,6 +175,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
             && button->IsEnabled && CanClick(TimeSpan.FromMilliseconds(450)))
         {
             diagnostics.Write("工具", $"点击砍树难度 {difficulty}，游标位置 {cursorY}。");
+            packetTrace?.Mark($"点击难度 {difficulty}", "动作结果");
             button->ClickAddonButton(addon);
         }
     }
@@ -208,6 +251,7 @@ public sealed unsafe class GoldSaucerTreeTool : IDisposable
             healthBeforeHit = health;
             pendingSinceUtc = DateTime.UtcNow;
             diagnostics.Write("工具", $"砍树挥击：目标 {target.Value}%，游标 {position:F1}%，生命值 {health}，剩余 {swings} 次。");
+            packetTrace?.Mark($"挥击 {target.Value}%", "动作结果");
             button->ClickAddonButton(addon);
         }
     }

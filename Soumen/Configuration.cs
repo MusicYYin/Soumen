@@ -72,6 +72,8 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool GoldSaucerTreeEnabled { get; set; } = false;
 
+    public bool GoldSaucerTreePacketTraceEnabled { get; set; } = false;
+
     // 0 = Titan, 1 = Morbol, 2 = Cactuar.
     public int GoldSaucerTreeDifficulty { get; set; } = 0;
 
