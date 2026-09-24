@@ -125,7 +125,7 @@ public sealed class MainWindow : Window
     {
         ImGui.Spacing();
         ImGui.TextColored(Accent, "金蝶 · 砍树");
-        ImGui.TextWrapped("在金蝶游乐场手动打开砍树小游戏后，自动选择难度并完成当前回合。是否继续挑战由你自己决定。");
+        ImGui.TextWrapped("普通模式通过界面点击。高速模式在金蝶手动触发小游戏后，根据服务器回包完成一局；继续挑战需要手动开始下一局。");
 
         var enabled = configuration.GoldSaucerTreeEnabled;
         if (ImGui.Checkbox("自动砍树##GoldSaucerTree", ref enabled))
@@ -138,6 +138,16 @@ public sealed class MainWindow : Window
         {
             goldSaucerTreeTool.SetDifficulty(difficulty);
         }
+
+        var fast = goldSaucerTreeTool.FastEnabled;
+        if (ImGui.Checkbox("高速发包砍树（实验，仅当前国服版本）##GoldSaucerTree", ref fast))
+        {
+            goldSaucerTreeTool.SetFastEnabled(fast);
+        }
+
+        ImGui.TextColored(goldSaucerTreeTool.FastStatus.StartsWith("已停止") ? Danger : Muted,
+            goldSaucerTreeTool.FastStatus);
+        ImGui.TextWrapped("高速模式只适配已抓包的 2026.09.15.0000.0000：先选难度，再手动与 NPC 交互开启小游戏。遇到异常可关闭开关或按 ESC。普通模式与高速模式不会同时运行。");
 
         ImGui.TextColored(goldSaucerTreeTool.HasError ? Danger : Muted, goldSaucerTreeTool.Status);
         var traceEnabled = configuration.GoldSaucerTreePacketTraceEnabled;
