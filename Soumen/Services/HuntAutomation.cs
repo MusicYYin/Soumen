@@ -76,7 +76,8 @@ public sealed class HuntAutomation : IDisposable
 
     private void OnChatMessage(IHandleableChatMessage message)
     {
-        if (configuration.ActiveTask != AutomationTask.HuntTrain || selectedLeader == null) return;
+        if (selectedLeader == null) return;
+        var active = configuration.ActiveTask == AutomationTask.HuntTrain;
         if (message.LogKind is not (XivChatType.Shout or XivChatType.Yell or XivChatType.Say
             or XivChatType.Party or XivChatType.CrossParty)) return;
 
@@ -86,7 +87,7 @@ public sealed class HuntAutomation : IDisposable
             && (senderPayload == null || selectedWorldId == 0
                 || senderPayload.World.RowId == 0 || selectedWorldId == senderPayload.World.RowId);
         var link = message.Message.Payloads.OfType<MapLinkPayload>().FirstOrDefault();
-        if (configuration.HuntMuteOtherShouts && !fromLeader && link == null
+        if (active && configuration.HuntMuteOtherShouts && !fromLeader && link == null
             && message.LogKind is (XivChatType.Shout or XivChatType.Yell or XivChatType.Say))
         {
             message.PreventOriginal();
@@ -94,7 +95,7 @@ public sealed class HuntAutomation : IDisposable
         }
         if (!fromLeader) return;
 
-        if (configuration.HuntHighlightLeader)
+        if (active && configuration.HuntHighlightLeader)
         {
             var colored = new SeStringBuilder();
             colored.AddUiForeground(578);
@@ -114,6 +115,7 @@ public sealed class HuntAutomation : IDisposable
         lastInstance = ParseInstance(message.Message.TextValue);
         lastLinkUtc = now;
         diagnostics.Write("狩猎", $"{sender} 发布坐标：{link.PlaceName} ({link.XCoord:F1}, {link.YCoord:F1})，instance={lastInstance}。");
+        if (!active) return;
         if (configuration.HuntAutoOpenMap)
         {
             try { Plugin.GameGui.OpenMapWithMapLink(link); }
