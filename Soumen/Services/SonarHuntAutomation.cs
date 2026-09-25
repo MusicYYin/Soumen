@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Dalamud.Game.Chat;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects.Types;
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
@@ -67,14 +68,18 @@ public sealed class SonarHuntAutomation : IDisposable
             || !string.Equals(message.Sender.TextValue, "Sonar", StringComparison.OrdinalIgnoreCase)) return;
 
         var text = message.Message.TextValue;
-        var rank = Regex.Match(text, @"\bRank\s+(SS|S)\s*:\s*(.*?)\s*(?:|<|$)",
+        // Sonar prints the rank and monster name as its first text payload,
+        // followed by a separately encoded map link and the world name.
+        var heading = message.Message.Payloads.OfType<Dalamud.Game.Text.SeStringHandling.Payloads.TextPayload>()
+            .FirstOrDefault()?.Text ?? string.Empty;
+        var rank = Regex.Match(heading, @"^Rank\s+(SS|S)\s*:\s*(.+?)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         if (!rank.Success) return;
         var link = message.Message.Payloads.OfType<MapLinkPayload>().FirstOrDefault();
         if (link == null) return;
         var worldMatch = Regex.Match(text, @"<([^>]+)>");
         if (!worldMatch.Success) return;
-        var worldName = worldMatch.Groups[1].Value.Replace("", string.Empty).Trim();
+        var worldName = Regex.Replace(worldMatch.Groups[1].Value, "[\uE000-\uF8FF]", string.Empty).Trim();
         var world = Plugin.DataManager.GetExcelSheet<World>()
             .FirstOrDefault(row => string.Equals(row.Name.ToString(), worldName, StringComparison.OrdinalIgnoreCase));
         if (world.RowId == 0)
@@ -93,7 +98,7 @@ public sealed class SonarHuntAutomation : IDisposable
                 && Vector3.Distance(r.LinkToWorld(0f), new Vector3(link.RawX / 1000f, 0f, link.RawY / 1000f)) < 75f)
                 .Select(r => r.Key).ToList();
             foreach (var deadKey in deadKeys) reports.Remove(deadKey);
-            if (deadKeys.Contains(currentKey))
+            if (currentKey != null && deadKeys.Contains(currentKey))
             {
                 StopMobNavigation();
                 navigator.Stop("Sonar 报告怪物死亡，选择下一目标");
