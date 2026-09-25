@@ -73,6 +73,8 @@ public sealed class Configuration : IPluginConfiguration
 
     public float ArrivalTolerance { get; set; } = 8f;
 
+    public float TreasureSpotCorrectionRange { get; set; } = 85f;
+
     public static Configuration Load(IDalamudPluginInterface pluginInterface)
     {
         var directory = pluginInterface.GetPluginConfigDirectory();
@@ -134,6 +136,7 @@ public sealed class Configuration : IPluginConfiguration
         configuration.LeaderMapMaximumUnitPrice = Math.Clamp(configuration.LeaderMapMaximumUnitPrice, 1_000u, 9_999_999u);
         configuration.StuckSeconds = Math.Clamp(configuration.StuckSeconds, 1f, 30f);
         configuration.ArrivalTolerance = Math.Clamp(configuration.ArrivalTolerance, 0f, 30f);
+        configuration.TreasureSpotCorrectionRange = Math.Clamp(configuration.TreasureSpotCorrectionRange, 0f, 150f);
         configuration.Version = 13;
         configuration.Save();
         return configuration;
