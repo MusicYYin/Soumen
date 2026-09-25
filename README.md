@@ -16,7 +16,7 @@ https://raw.githubusercontent.com/MusicYYin/DalamudPlugins/main/pluginmaster.jso
 
 - `vnavmesh`：路线导航。
 - `Lifestream`：狩猎换线与跨服。
-- `Sonar`：S 怪报告模式；需开启游戏聊天报告和死亡报告。
+- `Sonar`：S 怪报告模式；需开启游戏聊天报告和死亡报告。Sonar 暂无供其他插件读取实时列表与跨服人数的接口。
 - `AE Assist`：可选，导航中临时关闭自动选目标。
 - 寻宝的自动掷点与藏宝图定位可分别配合 `LazyLoot`、`Globetrotter` 等插件。
 

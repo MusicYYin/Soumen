@@ -80,7 +80,6 @@ public sealed class Configuration : IPluginConfiguration
     public float DungeonFollowDistance { get; set; } = 3.5f;
 
     public bool HuntEnabled { get; set; } = false;
-    public bool HuntAutoNavigate { get; set; } = true;
     public bool HuntAutoTeleport { get; set; } = true;
     public bool HuntAutoOpenMap { get; set; } = true;
     public bool HuntHighlightLeader { get; set; } = true;

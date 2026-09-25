@@ -146,6 +146,7 @@ public sealed class MapFlagAutomation : IDisposable
     public bool MapLocatorInstalled => GlobetrotterInstalled || DailyRoutinesInstalled;
 
     public event Action<MapFlagTarget>? DestinationReached;
+    public event Action<AutomationTask>? TaskActivated;
 
     public void SetLazyLootRollMode(LazyLootRollMode mode)
     {
@@ -200,6 +201,7 @@ public sealed class MapFlagAutomation : IDisposable
                 _ => "自动化已关闭",
             });
         diagnostics.Write("任务", $"启用任务：{task}。");
+        TaskActivated?.Invoke(task);
     }
 
     public unsafe MapFlagTarget? RegisterOwnFlagFromGame()

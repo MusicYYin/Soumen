@@ -8,13 +8,14 @@ using System.Text.RegularExpressions;
 
 namespace Soumen.Services;
 
-/// <summary>Hunt conductors and their last announced map link live only in memory.</summary>
+/// <summary>The selected hunt conductor and their last map link live only in memory.</summary>
 public sealed class HuntAutomation : IDisposable
 {
     private readonly Configuration configuration;
     private readonly MapFlagAutomation navigator;
     private readonly DiagnosticLogger diagnostics;
-    private readonly List<string> leaders = [];
+    private string? selectedLeader;
+    private uint selectedWorldId;
     private MapLinkPayload? lastLink;
     private string lastSender = string.Empty;
     private DateTime lastLinkUtc;
@@ -26,11 +27,10 @@ public sealed class HuntAutomation : IDisposable
         this.navigator = navigator;
         this.diagnostics = diagnostics;
         Plugin.ChatGui.ChatMessage += OnChatMessage;
+        navigator.TaskActivated += OnTaskActivated;
     }
 
-    public IReadOnlyList<string> Leaders => leaders;
-    public string LastLocation => lastLink == null ? "暂无车头坐标"
-        : $"{lastLink.PlaceName}  X {lastLink.XCoord:F1}  Y {lastLink.YCoord:F1} · {lastSender}";
+    public string? SelectedLeader => selectedLeader;
     public bool HasLocation => lastLink != null;
     public int LastInstance => lastInstance;
 
@@ -40,23 +40,28 @@ public sealed class HuntAutomation : IDisposable
     public bool AddCurrentTarget()
     {
         var target = Plugin.TargetManager.Target as IPlayerCharacter;
-        var name = target?.Name.TextValue?.Trim();
+        if (target == null) return false;
+        var name = target.Name.TextValue.Trim();
         if (string.IsNullOrWhiteSpace(name) || name == Plugin.ObjectTable.LocalPlayer?.Name.TextValue)
             return false;
-        if (!leaders.Contains(name, StringComparer.OrdinalIgnoreCase)) leaders.Add(name);
-        diagnostics.Write("狩猎", $"添加车头：{name}");
+        if (string.Equals(selectedLeader, name, StringComparison.OrdinalIgnoreCase)
+            && selectedWorldId == target.HomeWorld.RowId) return true;
+        ClearSession();
+        selectedLeader = name;
+        selectedWorldId = target.HomeWorld.RowId;
+        diagnostics.Write("狩猎", $"选中车头：{name}，world={selectedWorldId}");
         return true;
     }
 
-    public void RemoveLeader(string name) => leaders.RemoveAll(x => string.Equals(x, name, StringComparison.OrdinalIgnoreCase));
-
     public void ClearSession()
     {
-        leaders.Clear();
+        selectedLeader = null;
+        selectedWorldId = 0;
         lastLink = null;
         lastSender = string.Empty;
         lastInstance = 0;
-        if (navigator.ActiveTarget?.IsHunt == true) navigator.Stop("车头信息已清空");
+        if (navigator.ActiveTarget is { IsHunt: true, IsSonar: false })
+            navigator.Stop("车头信息已清空");
     }
 
     public void NavigateLast()
@@ -64,17 +69,25 @@ public sealed class HuntAutomation : IDisposable
         if (lastLink != null) navigator.NavigateHunt(lastLink, lastSender, lastInstance);
     }
 
+    private void OnTaskActivated(AutomationTask task)
+    {
+        if (task == AutomationTask.HuntTrain) NavigateLast();
+    }
+
     private void OnChatMessage(IHandleableChatMessage message)
     {
-        if (configuration.ActiveTask != AutomationTask.HuntTrain || leaders.Count == 0) return;
+        if (selectedLeader == null) return;
+        var active = configuration.ActiveTask == AutomationTask.HuntTrain;
         if (message.LogKind is not (XivChatType.Shout or XivChatType.Yell or XivChatType.Say
             or XivChatType.Party or XivChatType.CrossParty)) return;
 
-        var sender = message.Sender.Payloads.OfType<PlayerPayload>().FirstOrDefault()?.PlayerName
-            ?? message.Sender.TextValue;
-        var fromLeader = leaders.Contains(sender, StringComparer.OrdinalIgnoreCase);
+        var senderPayload = message.Sender.Payloads.OfType<PlayerPayload>().FirstOrDefault();
+        var sender = senderPayload?.PlayerName ?? message.Sender.TextValue;
+        var fromLeader = string.Equals(sender, selectedLeader, StringComparison.OrdinalIgnoreCase)
+            && (senderPayload == null || selectedWorldId == 0
+                || senderPayload.World.RowId == 0 || selectedWorldId == senderPayload.World.RowId);
         var link = message.Message.Payloads.OfType<MapLinkPayload>().FirstOrDefault();
-        if (configuration.HuntMuteOtherShouts && !fromLeader && link == null
+        if (active && configuration.HuntMuteOtherShouts && !fromLeader && link == null
             && message.LogKind is (XivChatType.Shout or XivChatType.Yell or XivChatType.Say))
         {
             message.PreventOriginal();
@@ -82,7 +95,7 @@ public sealed class HuntAutomation : IDisposable
         }
         if (!fromLeader) return;
 
-        if (configuration.HuntHighlightLeader)
+        if (active && configuration.HuntHighlightLeader)
         {
             var colored = new SeStringBuilder();
             colored.AddUiForeground(578);
@@ -93,15 +106,18 @@ public sealed class HuntAutomation : IDisposable
 
         if (link == null) return;
         var now = DateTime.UtcNow;
+        var instance = ParseInstance(message.Message.TextValue);
         if (lastLink != null && lastLink.TerritoryType.RowId == link.TerritoryType.RowId
             && lastLink.Map.RowId == link.Map.RowId && lastLink.RawX == link.RawX
-            && lastLink.RawY == link.RawY && now - lastLinkUtc < TimeSpan.FromMinutes(2)) return;
+            && lastLink.RawY == link.RawY && lastInstance == instance
+            && now - lastLinkUtc < TimeSpan.FromMinutes(2)) return;
 
         lastLink = link;
         lastSender = sender;
-        lastInstance = ParseInstance(message.Message.TextValue);
+        lastInstance = instance;
         lastLinkUtc = now;
         diagnostics.Write("狩猎", $"{sender} 发布坐标：{link.PlaceName} ({link.XCoord:F1}, {link.YCoord:F1})，instance={lastInstance}。");
+        if (!active) return;
         if (configuration.HuntAutoOpenMap)
         {
             try { Plugin.GameGui.OpenMapWithMapLink(link); }
@@ -109,12 +125,13 @@ public sealed class HuntAutomation : IDisposable
         }
         if (configuration.HuntChatNotification)
             Plugin.ChatGui.Print($"[Soumen 狩猎] {sender}：{link.PlaceName} ({link.XCoord:F1}, {link.YCoord:F1})");
-        if (configuration.HuntAutoNavigate) NavigateLast();
+        NavigateLast();
     }
 
     public void Dispose()
     {
         Plugin.ChatGui.ChatMessage -= OnChatMessage;
+        navigator.TaskActivated -= OnTaskActivated;
         ClearSession();
     }
 

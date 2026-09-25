@@ -64,7 +64,7 @@ public sealed class SonarHuntAutomation : IDisposable
 
     private void OnChatMessage(IHandleableChatMessage message)
     {
-        if (configuration.ActiveTask != AutomationTask.HuntSonar || !IsInstalled
+        if (!IsInstalled
             || !string.Equals(message.Sender.TextValue, "Sonar", StringComparison.OrdinalIgnoreCase)) return;
 
         var text = message.Message.TextValue;
@@ -98,7 +98,8 @@ public sealed class SonarHuntAutomation : IDisposable
                 && Vector3.Distance(r.LinkToWorld(0f), new Vector3(link.RawX / 1000f, 0f, link.RawY / 1000f)) < 75f)
                 .Select(r => r.Key).ToList();
             foreach (var deadKey in deadKeys) reports.Remove(deadKey);
-            if (currentKey != null && deadKeys.Contains(currentKey))
+            if (configuration.ActiveTask == AutomationTask.HuntSonar
+                && currentKey != null && deadKeys.Contains(currentKey))
             {
                 StopMobNavigation();
                 navigator.Stop("Sonar 报告怪物死亡，选择下一目标");
@@ -120,7 +121,12 @@ public sealed class SonarHuntAutomation : IDisposable
         var now = DateTime.UtcNow;
         if (now < nextUpdateUtc) return;
         nextUpdateUtc = now + TimeSpan.FromMilliseconds(500);
-        if (configuration.ActiveTask != AutomationTask.HuntSonar) { StopMobNavigation(); return; }
+        if (configuration.ActiveTask != AutomationTask.HuntSonar)
+        {
+            StopMobNavigation();
+            currentKey = null;
+            return;
+        }
         if (navigator.IsPaused)
         {
             StopMobNavigation();

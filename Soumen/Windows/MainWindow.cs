@@ -714,7 +714,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.5.0.0");
+        DrawSectionTitle("Soumen 0.5.1.0");
         ImGui.TextWrapped("自动化工具：寻宝与狩猎。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
@@ -745,24 +745,22 @@ public sealed class MainWindow : Window
         var active = configuration.ActiveTask is AutomationTask.HuntTrain or AutomationTask.HuntSonar;
         if (active) selectedHuntTask = configuration.ActiveTask;
         ImGui.Spacing();
-        DrawSectionTitle("狩猎模式");
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 8f * scale);
         var width = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2f;
-        DrawHuntModeButton("车头跟车", "只跟随选定车头的地图坐标", AutomationTask.HuntTrain, width, scale);
+        DrawHuntModeButton("车头跟车", "读取选中车头的地图坐标", AutomationTask.HuntTrain, width, scale);
         ImGui.SameLine();
-        DrawHuntModeButton("Sonar S 怪", "SS 优先 · 自动接续跨服路线", AutomationTask.HuntSonar, width, scale);
+        DrawHuntModeButton("Sonar S 怪", "追踪 S 怪与跨服路线", AutomationTask.HuntSonar, width, scale);
+        ImGui.PopStyleVar();
         ImGui.Spacing();
         ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 7f * scale);
         ImGui.PushStyleColor(ImGuiCol.Button, active ? new Vector4(0.34f, 0.14f, 0.17f, 1f) : Theme.Button);
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, active ? new Vector4(0.48f, 0.19f, 0.22f, 1f) : Theme.ButtonHovered);
         if (ImGui.Button(active ? "关闭狩猎" : "开启狩猎", new Vector2(150f, 38f) * scale))
         {
             if (active) automation.ActivateTask(AutomationTask.None);
-            else
-            {
-                sonarAutomation.Reset();
-                automation.ActivateTask(selectedHuntTask);
-            }
+            else automation.ActivateTask(selectedHuntTask);
         }
-        ImGui.PopStyleColor();
+        ImGui.PopStyleColor(2);
         ImGui.SameLine();
         ImGui.BeginDisabled(!active);
         if (ImGui.Button(automation.IsPaused ? "继续" : "暂停", new Vector2(100f, 38f) * scale))
@@ -779,13 +777,14 @@ public sealed class MainWindow : Window
         ImGui.Spacing();
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 9f * scale);
         ImGui.PushStyleColor(ImGuiCol.ChildBg, active ? AccentSoft : Panel);
-        ImGui.BeginChild("##HuntStatusCard", new Vector2(0f, 112f * scale), false);
+        ImGui.BeginChild("##HuntStatusCard", new Vector2(0f, 132f * scale), false);
         ImGui.SetCursorPos(new Vector2(16f, 13f) * scale);
-        ImGui.TextColored(active ? Success : Muted, active ? "●  狩猎运行中" : "●  狩猎未开启");
+        ImGui.TextColored(!active ? Muted : automation.IsPaused ? Warning : Success,
+            !active ? "●  未开启" : automation.IsPaused ? "●  已暂停" : "●  运行中");
         ImGui.SetCursorPosX(16f * scale);
-        ImGui.TextWrapped(!active ? "选择模式后开启；开启狩猎会自动停止寻宝任务。"
+        ImGui.TextWrapped(!active ? "等待开启狩猎"
             : configuration.ActiveTask == AutomationTask.HuntSonar ? sonarAutomation.StatusText
-            : automation.ActiveTarget?.IsHunt == true ? automation.StatusText : "等待选定车头发布地图坐标");
+            : automation.ActiveTarget?.IsHunt == true ? automation.StatusText : "等待选中车头发布地图坐标");
         ImGui.EndChild();
         ImGui.PopStyleColor();
         ImGui.PopStyleVar();
@@ -794,14 +793,18 @@ public sealed class MainWindow : Window
         if (selectedHuntTask == AutomationTask.HuntTrain) DrawHuntLeaders();
         else DrawSonarReports();
         ImGui.Spacing();
-        DrawSectionTitle("依赖");
-        if (ImGui.BeginTable("##HuntDependencies", 2, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.BordersInnerH))
+        DrawSectionTitle("依赖状态");
+        if (ImGui.BeginTable("##HuntDependencies", 2, ImGuiTableFlags.SizingStretchProp))
         {
-            DrawDependencyRow("vnavmesh", automation.VnavmeshInstalled, "路线导航");
-            DrawDependencyRow("AE Assist", automation.AeAssistInstalled, "导航中关闭自动选目标（可选）");
-            DrawDependencyRow("Lifestream", automation.LifestreamInstalled, "多线换线与跨服（可选）");
+            DrawDependencyRow("vnavmesh", automation.VnavmeshInstalled,
+                automation.VnavmeshInstalled ? automation.VnavmeshReady ? "已就绪" : "生成网格中" : "未加载");
+            DrawDependencyRow("AE Assist", automation.AeAssistInstalled,
+                automation.AeAssistInstalled ? "已加载" : "未加载（可选）");
+            DrawDependencyRow("Lifestream", automation.LifestreamInstalled,
+                automation.LifestreamInstalled ? "已加载" : "未加载（换线和跨服需要）");
             if (selectedHuntTask == AutomationTask.HuntSonar)
-                DrawDependencyRow("Sonar", sonarAutomation.IsInstalled, "S/SS 报告（必需）");
+                DrawDependencyRow("Sonar", sonarAutomation.IsInstalled,
+                    sonarAutomation.IsInstalled ? "已加载" : "未加载（必需）");
             ImGui.EndTable();
         }
     }
@@ -817,7 +820,6 @@ public sealed class MainWindow : Window
             selectedHuntTask = mode;
             if (configuration.HuntEnabled && configuration.ActiveTask != mode)
             {
-                sonarAutomation.Reset();
                 automation.ActivateTask(mode);
             }
         }
@@ -826,41 +828,42 @@ public sealed class MainWindow : Window
 
     private void DrawHuntLeaders()
     {
-        DrawSectionTitle("车头与坐标");
+        var scale = ImGuiHelpers.GlobalScale;
+        DrawSectionTitle("车头");
         if (ImGui.Button("添加当前目标为车头") && !huntAutomation.AddCurrentTarget())
             ImGui.OpenPopup("##HuntTargetMissing");
         ImGui.SameLine();
-        if (ImGui.Button("清空车头")) huntAutomation.ClearSession();
+        ImGui.BeginDisabled(huntAutomation.SelectedLeader == null);
+        if (ImGui.Button("删除车头")) huntAutomation.ClearSession();
+        ImGui.EndDisabled();
         if (ImGui.BeginPopup("##HuntTargetMissing"))
         {
             ImGui.TextUnformatted("请先在游戏中选中车头玩家。");
             ImGui.EndPopup();
         }
-        ImGui.TextColored(Muted, "车头仅保留到插件卸载；关闭界面不会清空。只识别列表中车头的坐标。");
-        foreach (var leader in huntAutomation.Leaders.ToList())
-        {
-            ImGui.PushID(leader);
-            ImGui.TextUnformatted("●  " + leader);
-            ImGui.SameLine();
-            if (ImGui.SmallButton("删除")) huntAutomation.RemoveLeader(leader);
-            ImGui.PopID();
-        }
-        ImGui.TextColored(Muted, huntAutomation.LastLocation
-            + (huntAutomation.LastInstance > 0 ? $" · {huntAutomation.LastInstance} 线" : string.Empty));
-        ImGui.BeginDisabled(!huntAutomation.HasLocation || configuration.ActiveTask != AutomationTask.HuntTrain);
-        if (ImGui.Button("前往最近车头坐标")) huntAutomation.NavigateLast();
-        ImGui.EndDisabled();
+        ImGui.Spacing();
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 9f * scale);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, huntAutomation.SelectedLeader == null ? Panel : AccentSoft);
+        ImGui.BeginChild("##SelectedHuntLeader", new Vector2(0f, 75f * scale), false);
+        ImGui.SetCursorPos(new Vector2(16f, 13f) * scale);
+        ImGui.TextColored(huntAutomation.SelectedLeader == null ? Muted : Accent,
+            huntAutomation.SelectedLeader == null ? "●  未选车头" : "●  当前车头");
+        ImGui.SetCursorPosX(16f * scale);
+        ImGui.TextUnformatted(huntAutomation.SelectedLeader ?? "先在游戏中选中玩家，再点击上方按钮");
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
+        ImGui.PopStyleVar();
     }
 
     private void DrawSonarReports()
     {
         DrawSectionTitle($"Sonar 待前往 S/SS · {sonarAutomation.ReportCount}");
         if (!sonarAutomation.IsInstalled)
-            ImGui.TextColored(Warning, "Sonar 未加载；请在 Sonar 设置中开启游戏聊天报告和死亡报告。");
+            ImGui.TextColored(Warning, "Sonar 未加载；需要开启游戏聊天报告和死亡报告。");
         else if (sonarAutomation.ReportCount == 0)
             ImGui.TextColored(Muted, "等待 Sonar 报告；无目标时前往沙都主水晶等待。");
         foreach (var report in sonarAutomation.PendingReports.Take(8)) ImGui.TextWrapped("●  " + report);
-        ImGui.TextColored(Muted, "人数只统计当前地图可见玩家；跨服目标没有可比较的人数。" );
+        ImGui.TextColored(Muted, "当前从 Sonar 聊天报告获取猎物；人数只统计当前地图可见玩家。");
     }
 
     private void DrawHuntSettings()
@@ -868,18 +871,16 @@ public sealed class MainWindow : Window
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("车头跟车", ImGuiTreeNodeFlags.DefaultOpen))
         {
-        DrawCheckbox("收到坐标自动导航", nameof(configuration.HuntAutoNavigate), configuration.HuntAutoNavigate,
-            value => configuration.HuntAutoNavigate = value);
-        DrawCheckbox("自动比较直达与以太水晶路线并传送", nameof(configuration.HuntAutoTeleport), configuration.HuntAutoTeleport,
-            value => configuration.HuntAutoTeleport = value);
-        DrawCheckbox("自动打开车头地图链接", nameof(configuration.HuntAutoOpenMap), configuration.HuntAutoOpenMap,
-            value => configuration.HuntAutoOpenMap = value);
-        DrawCheckbox("高亮车头消息", nameof(configuration.HuntHighlightLeader), configuration.HuntHighlightLeader,
-            value => configuration.HuntHighlightLeader = value);
-        DrawCheckbox("暂时隐藏其他人的喊话", nameof(configuration.HuntMuteOtherShouts), configuration.HuntMuteOtherShouts,
-            value => configuration.HuntMuteOtherShouts = value);
-        DrawCheckbox("收到新坐标时在聊天栏提醒", nameof(configuration.HuntChatNotification), configuration.HuntChatNotification,
-            value => configuration.HuntChatNotification = value);
+            DrawCheckbox("自动比较直达与以太水晶路线并传送", nameof(configuration.HuntAutoTeleport), configuration.HuntAutoTeleport,
+                value => configuration.HuntAutoTeleport = value);
+            DrawCheckbox("自动打开车头地图链接", nameof(configuration.HuntAutoOpenMap), configuration.HuntAutoOpenMap,
+                value => configuration.HuntAutoOpenMap = value);
+            DrawCheckbox("高亮车头消息", nameof(configuration.HuntHighlightLeader), configuration.HuntHighlightLeader,
+                value => configuration.HuntHighlightLeader = value);
+            DrawCheckbox("暂时隐藏其他人的喊话", nameof(configuration.HuntMuteOtherShouts), configuration.HuntMuteOtherShouts,
+                value => configuration.HuntMuteOtherShouts = value);
+            DrawCheckbox("收到新坐标时在聊天栏提醒", nameof(configuration.HuntChatNotification), configuration.HuntChatNotification,
+                value => configuration.HuntChatNotification = value);
         }
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("路线与 Sonar", ImGuiTreeNodeFlags.DefaultOpen))
@@ -890,7 +891,7 @@ public sealed class MainWindow : Window
                 value => configuration.HuntAutoWorldVisit = value);
             ImGui.TextColored(Muted, "SS 优先；同级先本服，再按当前地图可见人数排序。");
             ImGui.TextColored(Muted, "未开怪保持约 20y；开怪后靠近；死亡报告或确认消失后换目标。");
-            ImGui.TextWrapped("Sonar 的聊天报告需要手动开启。跨服人数、未发布的存量目标无法从 Sonar 读取。");
+            ImGui.TextWrapped("Sonar 聊天报告需要手动开启；当前无法通过公开接口读取信息面板的实时状态、人数与未收到报告的目标。");
         }
     }
 
