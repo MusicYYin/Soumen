@@ -7,14 +7,15 @@ namespace Soumen.Services;
 public sealed class TreasureSpotResolver
 {
     // A map flag can be over one displayed coordinate away from the actual dig spot.
-    private const float MaximumSnapDistance = 85f;
     private const float MinimumRunnerUpGap = 12f;
 
+    private readonly Configuration configuration;
     private readonly DiagnosticLogger diagnostics;
     private readonly Dictionary<uint, List<TreasureSpotPoint>> pointsByTerritory = [];
 
-    public TreasureSpotResolver(DiagnosticLogger diagnostics)
+    public TreasureSpotResolver(Configuration configuration, DiagnosticLogger diagnostics)
     {
+        this.configuration = configuration;
         this.diagnostics = diagnostics;
         Load();
     }
@@ -29,6 +30,12 @@ public sealed class TreasureSpotResolver
 
     public SpotResolution Inspect(MapFlagTarget target)
     {
+        var maximumSnapDistance = configuration.TreasureSpotCorrectionRange;
+        if (maximumSnapDistance <= 0f)
+        {
+            return new(false, default, float.PositiveInfinity, float.PositiveInfinity, 0, "藏宝点纠偏已关闭");
+        }
+
         if (!pointsByTerritory.TryGetValue(target.TerritoryId, out var territoryPoints))
         {
             return new(false, default, float.PositiveInfinity, float.PositiveInfinity, 0, "当前区域没有藏宝点数据");
@@ -51,10 +58,10 @@ public sealed class TreasureSpotResolver
 
         var closest = candidates[0];
         var second = candidates.Length > 1 ? candidates[1].Distance : float.PositiveInfinity;
-        if (closest.Distance > MaximumSnapDistance)
+        if (closest.Distance > maximumSnapDistance)
         {
             return new(false, closest.Position, closest.Distance, second, candidates.Length,
-                $"最近藏宝点距离 {closest.Distance:F1}y，超过 {MaximumSnapDistance:F0}y 搜索范围");
+                $"最近藏宝点距离 {closest.Distance:F1}y，超过 {maximumSnapDistance:F0}y 搜索范围");
         }
 
         if (second - closest.Distance < MinimumRunnerUpGap)
