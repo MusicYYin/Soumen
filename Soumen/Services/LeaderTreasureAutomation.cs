@@ -55,6 +55,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private readonly Configuration configuration;
     private readonly MapFlagAutomation mapAutomation;
+    private readonly TreasureSackAutomation treasureSackAutomation;
     private readonly DiagnosticLogger diagnostics;
     private readonly VNavmeshIpc vnavmesh;
     private readonly TeleportService teleportService;
@@ -98,10 +99,12 @@ public sealed class LeaderTreasureAutomation : IDisposable
     public LeaderTreasureAutomation(
         Configuration configuration,
         MapFlagAutomation mapAutomation,
+        TreasureSackAutomation treasureSackAutomation,
         DiagnosticLogger diagnostics)
     {
         this.configuration = configuration;
         this.mapAutomation = mapAutomation;
+        this.treasureSackAutomation = treasureSackAutomation;
         this.diagnostics = diagnostics;
         vnavmesh = new VNavmeshIpc(Plugin.PluginInterface, diagnostics);
         teleportService = new TeleportService(diagnostics);
@@ -1383,7 +1386,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        if (TreasureSackAutomation.HasCollectibleSacks())
+        if (treasureSackAutomation.HasPendingSacks())
         {
             StopOwnedNavigation();
             StatusText = "正在收集金袋与银袋";
