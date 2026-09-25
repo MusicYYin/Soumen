@@ -31,8 +31,7 @@ public sealed class ExternalPluginCoordinator
     {
         if (!configuration.HuntEnabled && configuration.EnableBossModRebornIntegration && BossModRebornInstalled && !bossModArmed)
         {
-            Execute("/bmrai on");
-            bossModArmed = true;
+            StartBossMod();
         }
 
         if (!configuration.HuntEnabled) ApplyLazyLootRollMode();
@@ -46,7 +45,7 @@ public sealed class ExternalPluginCoordinator
         SetNavigating(false);
         if (bossModArmed && BossModRebornInstalled)
         {
-            Execute("/bmrai off");
+            StopBossMod();
         }
 
         if (lazyLootArmed && LazyLootInstalled)
@@ -70,12 +69,12 @@ public sealed class ExternalPluginCoordinator
 
         if (!configuration.HuntEnabled && configuration.EnableBossModRebornIntegration && BossModRebornInstalled && !bossModArmed)
         {
-            Execute("/bmrai on");
-            bossModArmed = true;
+            StartBossMod();
         }
         else if ((configuration.HuntEnabled || !configuration.EnableBossModRebornIntegration) && bossModArmed && BossModRebornInstalled)
         {
-            Execute("/bmrai off");
+            StopDungeonFollow();
+            StopBossMod();
             bossModArmed = false;
         }
 
@@ -101,7 +100,6 @@ public sealed class ExternalPluginCoordinator
         if (!dungeonFollowArmed)
         {
             Execute($"/bmrai follow {leaderName}");
-            Execute("/bmrai followtarget on");
             Execute("/bmrai followoutofcombat on");
             dungeonFollowArmed = true;
         }
@@ -120,8 +118,6 @@ public sealed class ExternalPluginCoordinator
         dungeonFollowDistance = float.NaN;
         if (!BossModRebornInstalled) return;
         Execute("/bmrai followoutofcombat off");
-        Execute("/bmrai maxdistancetarget 2.6");
-        Execute("/bmrai follow slot1");
     }
 
     public void ApplyLazyLootRollMode()
@@ -173,6 +169,25 @@ public sealed class ExternalPluginCoordinator
 
         Execute(desired ? "/aeTargetSelector on" : "/aeTargetSelector off");
         aeTargetingEnabled = desired;
+    }
+
+    private void StartBossMod()
+    {
+        Execute("/bmrai followcombat on");
+        Execute("/bmrai followmodule on");
+        Execute("/bmrai followtarget on");
+        Execute("/bmrai followoutofcombat off");
+        Execute("/bmrai on");
+        bossModArmed = true;
+    }
+
+    private void StopBossMod()
+    {
+        Execute("/bmrai followoutofcombat off");
+        Execute("/bmrai followmodule off");
+        Execute("/bmrai followcombat off");
+        Execute("/bmrai followtarget off");
+        Execute("/bmrai off");
     }
 
     private static bool IsPluginLoaded(string internalName)
