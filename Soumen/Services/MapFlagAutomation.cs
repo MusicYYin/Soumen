@@ -127,6 +127,46 @@ public sealed class MapFlagAutomation : IDisposable
 
     public bool GlobetrotterInstalled => externalPlugins.GlobetrotterInstalled;
 
+    public bool DailyRoutinesInstalled => externalPlugins.DailyRoutinesInstalled;
+
+    public bool MapLocatorInstalled => GlobetrotterInstalled || DailyRoutinesInstalled;
+
+    public string PreviewCurrentFlagCorrection()
+    {
+        unsafe
+        {
+            var agent = AgentMap.Instance();
+            if (agent == null || agent->FlagMarkerCount == 0)
+            {
+                return "地图上没有旗标。先手动放置旗标，再运行测试。";
+            }
+
+            var flag = agent->FlagMapMarkers[0];
+            if (flag.TerritoryId == 0 || flag.MapId == 0)
+            {
+                return "当前旗标缺少区域或地图数据。";
+            }
+
+            var target = new MapFlagTarget(0, "测试", "测试", 0, 0,
+                flag.TerritoryId, flag.MapId,
+                (int)MathF.Round(flag.XFloat * 1000f),
+                (int)MathF.Round(flag.YFloat * 1000f),
+                0f, 0f, "测试旗标", DateTime.UtcNow);
+            var result = treasureSpots.Inspect(target);
+            var candidate = float.IsFinite(result.Distance)
+                ? $"({result.Position.X:F1}, {result.Position.Y:F1}, {result.Position.Z:F1}) / {result.Distance:F1}y"
+                : "无";
+            var runnerUp = float.IsFinite(result.RunnerUpDistance)
+                ? $"{result.RunnerUpDistance:F1}y"
+                : "无";
+            var summary = $"旗标 ({flag.XFloat:F1}, {flag.YFloat:F1}) · 区域 {flag.TerritoryId} / 地图 {flag.MapId}\n"
+                + $"最近藏宝点 {candidate} · 第二近 {runnerUp}\n"
+                + $"结果：{result.Reason}";
+            diagnostics.Write("功能测试", summary.Replace('\n', ' '));
+            return summary;
+        }
+    }
+
     public event Action<MapFlagTarget>? DestinationReached;
 
     public void SetLazyLootRollMode(LazyLootRollMode mode)
@@ -1579,6 +1619,9 @@ public sealed class MapFlagAutomation : IDisposable
                 TimeSpan.FromMinutes(1));
             return resolved;
         }
+
+        var correction = treasureSpots.Inspect(target);
+        diagnostics.Write("藏宝点", $"旗标未校正：{correction.Reason}；territory={target.TerritoryId}，map={target.MapId}，raw={FormatPoint(target.ToWorld(0f))}。");
 
         SetMapFlag(target);
         var fallback = target.ToWorld(player.Position.Y);

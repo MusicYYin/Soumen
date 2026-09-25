@@ -91,6 +91,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private bool decodedInventoryLoaded;
     private RestockStage restockStage;
     private bool disposed;
+    private DeveloperTestKind developerTest;
+    private bool developerTestHold;
 
     public LeaderTreasureAutomation(
         Configuration configuration,
@@ -121,6 +123,80 @@ public sealed class LeaderTreasureAutomation : IDisposable
     public int DecodedMapCount { get; private set; }
 
     public int InventoryMapCount { get; private set; }
+
+    public string DeveloperTestResult { get; private set; } = "未运行功能测试";
+
+    public bool IsDeveloperTestRunning => developerTest != DeveloperTestKind.None;
+
+    public void TestMarketPurchase()
+    {
+        if (developerTest != DeveloperTestKind.None)
+        {
+            return;
+        }
+
+        if (!SelectedMap.CanMarketRestock || InventoryMapCount > 0 || TreasureContext.IsTreasureDungeon())
+        {
+            DeveloperTestResult = "请选择可购买的图，并确认背包没有同款地图且人不在宝物库。";
+            return;
+        }
+
+        mapAutomation.Stop("功能测试：自动买图");
+        developerTestHold = false;
+        developerTest = DeveloperTestKind.Market;
+        DeveloperTestResult = "正在前往海都、打开市场板并购买一张图…";
+        restockStage = RestockStage.BuyFirst;
+        restockFailureCount = 0;
+        marketPurchase.Reset();
+        PrepareRestockTravel("功能测试：前往海都市场板");
+        diagnostics.Write("功能测试", $"开始自动买图：{SelectedMapName}，最高单价 {configuration.LeaderMapMaximumUnitPrice} Gil。");
+    }
+
+    public void TestDecipher()
+    {
+        if (developerTest != DeveloperTestKind.None)
+        {
+            return;
+        }
+
+        if (InventoryMapCount == 0 || DecodedMapCount > 0 || TreasureContext.IsTreasureDungeon())
+        {
+            DeveloperTestResult = "需要背包里有选定的未解读藏宝图，且任务道具里没有已解读地图。";
+            return;
+        }
+
+        mapAutomation.Stop("功能测试：解读地图");
+        developerTestHold = false;
+        developerTest = DeveloperTestKind.Decipher;
+        DeveloperTestResult = "正在使用解读技能，并等待地图选择和确认…";
+        restockStage = RestockStage.None;
+        lastActionUtc = DateTime.MinValue;
+        SetState(LeaderAutomationState.LookingForMap, "功能测试：准备解读藏宝图");
+        diagnostics.Write("功能测试", $"开始解读：{SelectedMapName}，背包数量 {InventoryMapCount}。");
+    }
+
+    public void CancelDeveloperTest()
+    {
+        if (developerTest != DeveloperTestKind.None)
+        {
+            FinishDeveloperTest("功能测试已取消");
+        }
+    }
+
+    private void FinishDeveloperTest(string result)
+    {
+        StopOwnedNavigation();
+        if (developerTest == DeveloperTestKind.Market)
+        {
+            CancelRestock();
+        }
+
+        developerTest = DeveloperTestKind.None;
+        developerTestHold = true;
+        DeveloperTestResult = result;
+        SetState(LeaderAutomationState.Inactive, result);
+        diagnostics.Write("功能测试", result);
+    }
 
     public bool CanRetryCurrentStep
         => configuration.Enabled
@@ -160,6 +236,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     public void Restart()
     {
+        developerTestHold = false;
         StopOwnedNavigation();
         ResetCycle();
         SetState(LeaderAutomationState.LookingForMap, "正在检查藏宝图");
@@ -330,6 +407,21 @@ public sealed class LeaderTreasureAutomation : IDisposable
         nextUpdateUtc = now + UpdateInterval;
         RefreshInventorySummary();
 
+        if (developerTest != DeveloperTestKind.None)
+        {
+            ProcessDeveloperTest(now);
+            return;
+        }
+
+        if (!configuration.Enabled || configuration.OperatingMode != OperatingMode.Leader)
+        {
+            developerTestHold = false;
+        }
+        else if (developerTestHold)
+        {
+            return;
+        }
+
         if (!configuration.Enabled || configuration.OperatingMode != OperatingMode.Leader)
         {
             if (State != LeaderAutomationState.Inactive)
@@ -452,6 +544,47 @@ public sealed class LeaderTreasureAutomation : IDisposable
         }
     }
 
+    private void ProcessDeveloperTest(DateTime now)
+    {
+        if (IsLoadingOrWatchingCutscene())
+        {
+            return;
+        }
+
+        if (developerTest == DeveloperTestKind.Market)
+        {
+            if (State == LeaderAutomationState.RestockingTravel)
+            {
+                ProcessRestockingTravel(now);
+            }
+            else if (State == LeaderAutomationState.RestockingMarket)
+            {
+                ProcessRestockingMarket(now);
+            }
+        }
+        else if (developerTest == DeveloperTestKind.Decipher)
+        {
+            switch (State)
+            {
+                case LeaderAutomationState.LookingForMap:
+                    BeginDecipher(now);
+                    break;
+                case LeaderAutomationState.DecipheringMap:
+                    ProcessDecipherMenu(now);
+                    break;
+                case LeaderAutomationState.ConfirmingDecipher:
+                    ProcessDecipherConfirmation(now);
+                    break;
+            }
+        }
+
+        DeveloperTestResult = StatusText;
+        if (State == LeaderAutomationState.Error)
+        {
+            FinishDeveloperTest($"测试失败：{StatusText}");
+        }
+    }
+
     private void ProcessMapAcquisition(DateTime now)
     {
         if (!decodedInventoryLoaded)
@@ -553,7 +686,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private void ProcessRestockingTravel(DateTime now)
     {
-        if (!configuration.AutoRestockLeaderMaps)
+        if (!configuration.AutoRestockLeaderMaps && developerTest != DeveloperTestKind.Market)
         {
             CancelRestock();
             SetState(LeaderAutomationState.Waiting, "自动补图已关闭");
@@ -721,6 +854,12 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     private void CompleteMarketPurchaseStage()
     {
+        if (developerTest == DeveloperTestKind.Market)
+        {
+            FinishDeveloperTest($"自动买图测试完成：已购入一张 {SelectedMapName}，花费 {marketPurchase.PurchasedTotalPrice:N0} Gil。");
+            return;
+        }
+
         restockSpentGil = checked(restockSpentGil + marketPurchase.PurchasedTotalPrice);
         restockFailureCount = 0;
 
@@ -918,6 +1057,12 @@ public sealed class LeaderTreasureAutomation : IDisposable
     {
         if (InventoryMapCount < decipherInventoryCountBefore)
         {
+            if (developerTest == DeveloperTestKind.Decipher)
+            {
+                FinishDeveloperTest($"解读测试完成：背包数量 {decipherInventoryCountBefore} → {InventoryMapCount}，已解读地图 {DecodedMapCount} 张。");
+                return;
+            }
+
             preferInventoryMap = false;
             if (restockStage == RestockStage.DecipherFirst)
             {
@@ -1979,5 +2124,12 @@ public sealed class LeaderTreasureAutomation : IDisposable
         BuyFirst,
         DecipherFirst,
         BuySecond,
+    }
+
+    private enum DeveloperTestKind
+    {
+        None,
+        Market,
+        Decipher,
     }
 }

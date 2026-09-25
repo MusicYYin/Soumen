@@ -6,7 +6,9 @@ namespace Soumen.Services;
 
 public sealed class TreasureSpotResolver
 {
-    private const float MaximumSnapDistance = 24f;
+    // A map flag can be over one displayed coordinate away from the actual dig spot.
+    private const float MaximumSnapDistance = 85f;
+    private const float MinimumRunnerUpGap = 12f;
 
     private readonly DiagnosticLogger diagnostics;
     private readonly Dictionary<uint, List<TreasureSpotPoint>> pointsByTerritory = [];
@@ -19,37 +21,49 @@ public sealed class TreasureSpotResolver
 
     public bool TryResolve(MapFlagTarget target, out Vector3 position, out float distance)
     {
-        position = default;
-        distance = float.PositiveInfinity;
+        var result = Inspect(target);
+        position = result.Position;
+        distance = result.Distance;
+        return result.Matched;
+    }
+
+    public SpotResolution Inspect(MapFlagTarget target)
+    {
         if (!pointsByTerritory.TryGetValue(target.TerritoryId, out var territoryPoints))
         {
-            return false;
+            return new(false, default, float.PositiveInfinity, float.PositiveInfinity, 0, "当前区域没有藏宝点数据");
         }
 
         var raw = target.ToWorld(0f);
-        var mapPoints = territoryPoints.Where(point => point.MapId == target.MapId).ToList();
         // A territory may have multiple map floors. Never borrow a spot from another map.
-        var candidates = target.MapId != 0 ? mapPoints : territoryPoints;
-        TreasureSpotPoint? best = null;
-        foreach (var point in candidates)
+        var candidates = (target.MapId == 0
+                ? territoryPoints
+                : territoryPoints.Where(point => point.MapId == target.MapId))
+            .Select(point => (point.Position, Distance: HorizontalDistance(raw, point.Position)))
+            .OrderBy(point => point.Distance)
+            .Take(2)
+            .ToArray();
+        if (candidates.Length == 0)
         {
-            var current = HorizontalDistance(raw, point.Position);
-            if (current >= distance)
-            {
-                continue;
-            }
-
-            best = point;
-            distance = current;
+            return new(false, default, float.PositiveInfinity, float.PositiveInfinity, 0,
+                $"未找到匹配地图 #{target.MapId} 的藏宝点");
         }
 
-        if (best == null || distance > MaximumSnapDistance)
+        var closest = candidates[0];
+        var second = candidates.Length > 1 ? candidates[1].Distance : float.PositiveInfinity;
+        if (closest.Distance > MaximumSnapDistance)
         {
-            return false;
+            return new(false, closest.Position, closest.Distance, second, candidates.Length,
+                $"最近藏宝点距离 {closest.Distance:F1}y，超过 {MaximumSnapDistance:F0}y 搜索范围");
         }
 
-        position = best.Position;
-        return true;
+        if (second - closest.Distance < MinimumRunnerUpGap)
+        {
+            return new(false, closest.Position, closest.Distance, second, candidates.Length,
+                $"两处藏宝点相距相近（{closest.Distance:F1}/{second:F1}y），无法确定目标");
+        }
+
+        return new(true, closest.Position, closest.Distance, second, candidates.Length, "已定位藏宝点");
     }
 
     private void Load()
@@ -117,4 +131,7 @@ public sealed class TreasureSpotResolver
     }
 
     private sealed record TreasureSpotPoint(uint MapId, Vector3 Position);
+
+    public readonly record struct SpotResolution(
+        bool Matched, Vector3 Position, float Distance, float RunnerUpDistance, int CandidateCount, string Reason);
 }

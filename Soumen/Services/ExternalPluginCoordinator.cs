@@ -23,6 +23,8 @@ public sealed class ExternalPluginCoordinator
 
     public bool GlobetrotterInstalled => IsPluginLoaded("Globetrotter");
 
+    public bool DailyRoutinesInstalled => IsPluginLoaded("DailyRoutines");
+
     public void StartRuntime()
     {
         if (configuration.EnableBossModRebornIntegration && BossModRebornInstalled && !bossModArmed)
