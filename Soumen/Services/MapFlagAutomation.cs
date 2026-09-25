@@ -778,7 +778,8 @@ public sealed class MapFlagAutomation : IDisposable
         => activeTarget != null
             && (activeTarget.IsHunt ? configuration.HuntAutoTeleport
                 : true)
-            && (configuration.OperatingMode == OperatingMode.Leader
+            && (activeTarget.IsHunt
+                || configuration.OperatingMode == OperatingMode.Leader
                 || configuration.AutoTeleport
                 || configuration.AcceptPartyTeleportRequests
                     && (Plugin.ClientState.TerritoryType != activeTarget.TerritoryId
