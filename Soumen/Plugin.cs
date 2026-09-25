@@ -51,7 +51,7 @@ public sealed class Plugin : IDalamudPlugin
             automation.CanAcceptPartyTeleport, diagnostics);
         treasureDungeonAutomation = new TreasureDungeonAutomation(configuration);
         treasureSackAutomation = new TreasureSackAutomation(configuration, automation, diagnostics);
-        leaderTreasureAutomation = new LeaderTreasureAutomation(configuration, automation, diagnostics);
+        leaderTreasureAutomation = new LeaderTreasureAutomation(configuration, automation, treasureSackAutomation, diagnostics);
         autoDiscardService = new AutoDiscardService(configuration, automation, diagnostics);
         statisticsService = new StatisticsService(configuration);
         huntAutomation = new HuntAutomation(configuration, automation, diagnostics);
