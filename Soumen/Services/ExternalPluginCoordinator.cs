@@ -1,3 +1,4 @@
+using System.Reflection;
 using Soumen.Models;
 
 namespace Soumen.Services;
@@ -10,6 +11,9 @@ public sealed class ExternalPluginCoordinator
     private bool lazyLootArmed;
     private bool dungeonFollowArmed;
     private float dungeonFollowDistance = float.NaN;
+    private float? dungeonFollowOriginalDistance;
+    private int? dungeonFollowOriginalSlot;
+    private bool bossModSettingsReadFailed;
     private LazyLootRollMode? appliedLazyLootRollMode;
 
     public ExternalPluginCoordinator(Configuration configuration)
@@ -65,6 +69,9 @@ public sealed class ExternalPluginCoordinator
         {
             bossModArmed = false;
             dungeonFollowArmed = false;
+            dungeonFollowOriginalDistance = null;
+            dungeonFollowOriginalSlot = null;
+            bossModSettingsReadFailed = false;
         }
 
         if (!configuration.HuntEnabled && configuration.EnableBossModRebornIntegration && BossModRebornInstalled && !bossModArmed)
@@ -99,6 +106,9 @@ public sealed class ExternalPluginCoordinator
         if (!BossModRebornInstalled || !bossModArmed || string.IsNullOrWhiteSpace(leaderName)) return false;
         if (!dungeonFollowArmed)
         {
+            // BMR exposes commands to change these settings, but no command to
+            // read them. Preserve the live settings before changing either one.
+            if (!TryCaptureBossModFollowSettings()) return false;
             Execute($"/bmrai follow {leaderName}");
             Execute("/bmrai followoutofcombat on");
             dungeonFollowArmed = true;
@@ -116,10 +126,16 @@ public sealed class ExternalPluginCoordinator
         if (!dungeonFollowArmed) return;
         dungeonFollowArmed = false;
         dungeonFollowDistance = float.NaN;
+        var originalDistance = dungeonFollowOriginalDistance;
+        var originalSlot = dungeonFollowOriginalSlot;
+        dungeonFollowOriginalDistance = null;
+        dungeonFollowOriginalSlot = null;
         if (!BossModRebornInstalled) return;
         Execute("/bmrai followoutofcombat off");
-        Execute("/bmrai maxdistancetarget 2.6");
-        Execute("/bmrai follow slot1");
+        if (originalDistance is { } distance)
+            Execute($"/bmrai maxdistancetarget {distance.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+        if (originalSlot is >= 0 and < 8)
+            Execute($"/bmrai follow slot{originalSlot.Value + 1}");
     }
 
     public void ApplyLazyLootRollMode()
@@ -190,6 +206,36 @@ public sealed class ExternalPluginCoordinator
         Execute("/bmrai followcombat off");
         Execute("/bmrai followtarget off");
         Execute("/bmrai off");
+    }
+
+    private bool TryCaptureBossModFollowSettings()
+    {
+        if (dungeonFollowOriginalDistance != null && dungeonFollowOriginalSlot != null) return true;
+        if (bossModSettingsReadFailed) return false;
+
+        try
+        {
+            var managerType = AppDomain.CurrentDomain.GetAssemblies()
+                .Where(assembly => assembly.GetName().Name?.StartsWith("BossMod", StringComparison.OrdinalIgnoreCase) == true)
+                .Select(assembly => assembly.GetType("BossMod.AI.AIManager", throwOnError: false))
+                .FirstOrDefault(type => type != null);
+            var config = managerType?.GetField("_config", BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null);
+            var configType = config?.GetType();
+            var distance = configType?.GetField("MaxDistanceToTarget", BindingFlags.Instance | BindingFlags.Public)?.GetValue(config);
+            var slot = configType?.GetField("FollowSlot", BindingFlags.Instance | BindingFlags.Public)?.GetValue(config);
+            if (distance is not float originalDistance || slot is not int originalSlot || originalSlot is < 0 or > 7)
+                throw new InvalidOperationException("BMR AI follow configuration is unavailable.");
+
+            dungeonFollowOriginalDistance = originalDistance;
+            dungeonFollowOriginalSlot = originalSlot;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            bossModSettingsReadFailed = true;
+            Plugin.Log.Warning(ex, "Could not preserve BMR follow settings; using vnavmesh for dungeon follow.");
+            return false;
+        }
     }
 
     private static bool IsPluginLoaded(string internalName)
