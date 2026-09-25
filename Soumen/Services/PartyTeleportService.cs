@@ -16,6 +16,8 @@ public sealed unsafe class PartyTeleportService : IDisposable
     private readonly System.Func<bool> canAcceptTeleport;
     private readonly DiagnosticLogger diagnostics;
     private readonly string[] promptFragments;
+    private nint lastPromptAddress;
+    private DateTime lastResponseUtc = DateTime.MinValue;
 
     public PartyTeleportService(
         Configuration configuration,
@@ -28,13 +30,15 @@ public sealed unsafe class PartyTeleportService : IDisposable
         this.canAcceptTeleport = canAcceptTeleport;
         this.diagnostics = diagnostics;
         promptFragments = LoadPromptFragments();
-        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnSelectYesnoPostSetup);
+        // PostSetup runs before the game finishes wiring the dialog. Deferred
+        // offers can appear later, so respond only when it is actually drawn.
+        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostDraw, "SelectYesno", OnSelectYesnoPostDraw);
     }
 
     public void Dispose()
-        => Plugin.AddonLifecycle.UnregisterListener(OnSelectYesnoPostSetup);
+        => Plugin.AddonLifecycle.UnregisterListener(OnSelectYesnoPostDraw);
 
-    private void OnSelectYesnoPostSetup(AddonEvent type, AddonArgs args)
+    private void OnSelectYesnoPostDraw(AddonEvent type, AddonArgs args)
     {
         _ = type;
         if (!configuration.Enabled
@@ -45,6 +49,8 @@ public sealed unsafe class PartyTeleportService : IDisposable
         }
 
         var addon = (AddonSelectYesno*)args.Addon.Address;
+        if (addon == null || (lastPromptAddress == (nint)addon
+            && DateTime.UtcNow - lastResponseUtc < TimeSpan.FromSeconds(1.5))) return;
         var prompt = addon == null || addon->PromptText == null
             ? string.Empty
             : addon->PromptText->NodeText.ToString();
@@ -54,17 +60,20 @@ public sealed unsafe class PartyTeleportService : IDisposable
             return;
         }
 
+        lastPromptAddress = (nint)addon;
+        lastResponseUtc = DateTime.UtcNow;
+
         if (canAcceptTeleport())
         {
             Plugin.Log.Information("Accepting party teleport request: {Prompt}", prompt);
-            diagnostics.Write("队友传送", "已接受队友传送邀请。" );
+            diagnostics.Write("队友传送", "已向游戏确认接受队友传送邀请。" );
             onTeleportAccepted();
             addon->AtkUnitBase.FireCallbackInt(0);
         }
         else
         {
             Plugin.Log.Information("Rejecting party teleport request while self teleport is enabled: {Prompt}", prompt);
-            diagnostics.Write("队友传送", "当前使用自行传送，已拒绝队友传送邀请。" );
+            diagnostics.Write("队友传送", "当前使用自行传送，已向游戏确认拒绝邀请。" );
             addon->AtkUnitBase.FireCallbackInt(1);
         }
     }

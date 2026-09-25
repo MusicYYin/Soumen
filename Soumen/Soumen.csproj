@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.5.1.0</Version>
-    <AssemblyVersion>0.5.1.0</AssemblyVersion>
-    <FileVersion>0.5.1.0</FileVersion>
+    <Version>0.5.2.0</Version>
+    <AssemblyVersion>0.5.2.0</AssemblyVersion>
+    <FileVersion>0.5.2.0</FileVersion>
     <Author>MusicYYin</Author>
     <Name>Soumen</Name>
     <InternalName>Soumen</InternalName>
     <RootNamespace>Soumen</RootNamespace>
     <Punchline>寻宝与狩猎自动化工具。</Punchline>
-    <Description>提供藏宝图流程、狩猎跟车及 Sonar S 怪路线。</Description>
+    <Description>提供藏宝图流程与狩猎车头跟随。</Description>
     <RepoUrl>https://github.com/MusicYYin/Soumen</RepoUrl>
     <IconUrl>https://raw.githubusercontent.com/MusicYYin/Soumen/main/icon.png</IconUrl>
     <Tags>treasure;hunt;navigation;automation;Chinese</Tags>

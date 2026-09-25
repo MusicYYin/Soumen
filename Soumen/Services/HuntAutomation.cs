@@ -60,7 +60,7 @@ public sealed class HuntAutomation : IDisposable
         lastLink = null;
         lastSender = string.Empty;
         lastInstance = 0;
-        if (navigator.ActiveTarget is { IsHunt: true, IsSonar: false })
+        if (navigator.ActiveTarget is { IsHunt: true })
             navigator.Stop("车头信息已清空");
     }
 
@@ -106,7 +106,18 @@ public sealed class HuntAutomation : IDisposable
 
         if (link == null) return;
         var now = DateTime.UtcNow;
-        var instance = ParseInstance(message.Message.TextValue);
+        // The instance icon belongs to the rendered map-link label, not to MapLinkPayload.
+        // Read that label only: a separate icon elsewhere in chat must not redirect us.
+        var linkIndex = message.Message.Payloads.IndexOf(link);
+        var mapLabel = message.Message.Payloads.Skip(linkIndex + 1)
+            .OfType<TextPayload>()
+            .FirstOrDefault(text => text.Text?.Contains(link.CoordinateString, StringComparison.Ordinal) == true)?.Text;
+        var instance = ParseInstance(mapLabel ?? string.Empty);
+        if (instance == 0)
+        {
+            // Some conductors write "2线" outside the map link.
+            instance = ParseExplicitInstance(message.Message.TextValue);
+        }
         if (lastLink != null && lastLink.TerritoryType.RowId == link.TerritoryType.RowId
             && lastLink.Map.RowId == link.Map.RowId && lastLink.RawX == link.RawX
             && lastLink.RawY == link.RawY && lastInstance == instance
@@ -138,8 +149,17 @@ public sealed class HuntAutomation : IDisposable
     internal static int ParseInstance(string message)
     {
         const string icons = "";
-        for (var i = 0; i < icons.Length; i++)
-            if (message.Contains(icons[i])) return i + 1;
+        foreach (var symbol in message)
+        {
+            var iconIndex = icons.IndexOf(symbol);
+            if (iconIndex >= 0) return iconIndex + 1;
+            if (symbol is >= '①' and <= '⑨') return symbol - '①' + 1;
+        }
+        return ParseExplicitInstance(message);
+    }
+
+    private static int ParseExplicitInstance(string message)
+    {
         var match = Regex.Match(message, @"(?:\bi\s*|(?<!\d))([1-9])\s*(?:线|instance)\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         return match.Success && int.TryParse(match.Groups[1].Value, out var number) ? number : 0;
