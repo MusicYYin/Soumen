@@ -106,13 +106,15 @@ public sealed class HuntAutomation : IDisposable
 
         if (link == null) return;
         var now = DateTime.UtcNow;
+        var instance = ParseInstance(message.Message.TextValue);
         if (lastLink != null && lastLink.TerritoryType.RowId == link.TerritoryType.RowId
             && lastLink.Map.RowId == link.Map.RowId && lastLink.RawX == link.RawX
-            && lastLink.RawY == link.RawY && now - lastLinkUtc < TimeSpan.FromMinutes(2)) return;
+            && lastLink.RawY == link.RawY && lastInstance == instance
+            && now - lastLinkUtc < TimeSpan.FromMinutes(2)) return;
 
         lastLink = link;
         lastSender = sender;
-        lastInstance = ParseInstance(message.Message.TextValue);
+        lastInstance = instance;
         lastLinkUtc = now;
         diagnostics.Write("狩猎", $"{sender} 发布坐标：{link.PlaceName} ({link.XCoord:F1}, {link.YCoord:F1})，instance={lastInstance}。");
         if (!active) return;
