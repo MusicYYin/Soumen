@@ -39,8 +39,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly AutoDiscardService autoDiscardService;
     private readonly StatisticsService statisticsService;
     private readonly HuntAutomation huntAutomation;
+    private readonly SonarHuntAutomation sonarAutomation;
     private readonly MainWindow mainWindow;
-    private bool wasWindowOpen;
 
     public Plugin()
     {
@@ -56,7 +56,9 @@ public sealed class Plugin : IDalamudPlugin
         autoDiscardService = new AutoDiscardService(configuration, automation, diagnostics);
         statisticsService = new StatisticsService(configuration);
         huntAutomation = new HuntAutomation(configuration, automation, diagnostics);
-        mainWindow = new MainWindow(configuration, automation, leaderTreasureAutomation, autoDiscardService, statisticsService, diagnostics, huntAutomation);
+        sonarAutomation = new SonarHuntAutomation(configuration, automation, diagnostics);
+        mainWindow = new MainWindow(configuration, automation, leaderTreasureAutomation, autoDiscardService,
+            statisticsService, diagnostics, huntAutomation, sonarAutomation);
         windowSystem.AddWindow(mainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -64,7 +66,7 @@ public sealed class Plugin : IDalamudPlugin
             HelpMessage = "打开 Soumen；可用参数：on、off、pause、resume、stop",
         });
 
-        PluginInterface.UiBuilder.Draw += DrawUi;
+        PluginInterface.UiBuilder.Draw += windowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi += OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi += OpenMainUi;
     }
@@ -72,11 +74,12 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         diagnostics.Write("运行", "Soumen 正在卸载。");
-        PluginInterface.UiBuilder.Draw -= DrawUi;
+        PluginInterface.UiBuilder.Draw -= windowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi -= OpenMainUi;
         CommandManager.RemoveHandler(CommandName);
         windowSystem.RemoveAllWindows();
+        sonarAutomation.Dispose();
         huntAutomation.Dispose();
         statisticsService.Dispose();
         autoDiscardService.Dispose();
@@ -115,19 +118,4 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OpenMainUi() => mainWindow.IsOpen = true;
 
-    private void DrawUi()
-    {
-        if (wasWindowOpen != mainWindow.IsOpen)
-        {
-            huntAutomation.ClearSession();
-            wasWindowOpen = mainWindow.IsOpen;
-        }
-
-        windowSystem.Draw();
-        if (wasWindowOpen != mainWindow.IsOpen)
-        {
-            huntAutomation.ClearSession();
-            wasWindowOpen = mainWindow.IsOpen;
-        }
-    }
 }

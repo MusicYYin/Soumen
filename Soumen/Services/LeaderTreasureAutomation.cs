@@ -201,6 +201,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
 
     public bool CanRetryCurrentStep
         => configuration.Enabled
+            && !configuration.HuntEnabled
             && configuration.OperatingMode == OperatingMode.Leader
             && State != LeaderAutomationState.Inactive;
 
@@ -414,7 +415,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        if (!configuration.Enabled || configuration.OperatingMode != OperatingMode.Leader)
+        if (!configuration.Enabled || configuration.HuntEnabled || configuration.OperatingMode != OperatingMode.Leader)
         {
             developerTestHold = false;
         }
@@ -423,7 +424,7 @@ public sealed class LeaderTreasureAutomation : IDisposable
             return;
         }
 
-        if (!configuration.Enabled || configuration.OperatingMode != OperatingMode.Leader)
+        if (!configuration.Enabled || configuration.HuntEnabled || configuration.OperatingMode != OperatingMode.Leader)
         {
             if (State != LeaderAutomationState.Inactive)
             {

@@ -19,7 +19,9 @@ public sealed class Configuration : IPluginConfiguration
     [JsonIgnore]
     private IDalamudPluginInterface? pluginInterface;
 
-    public int Version { get; set; } = 13;
+    public int Version { get; set; } = 14;
+
+    public AutomationTask ActiveTask { get; set; } = AutomationTask.None;
 
     public OperatingMode OperatingMode { get; set; } = OperatingMode.Follow;
 
@@ -84,6 +86,8 @@ public sealed class Configuration : IPluginConfiguration
     public bool HuntHighlightLeader { get; set; } = true;
     public bool HuntMuteOtherShouts { get; set; } = false;
     public bool HuntChatNotification { get; set; } = true;
+    public bool HuntAutoInstance { get; set; } = true;
+    public bool HuntAutoWorldVisit { get; set; } = true;
 
     public static Configuration Load(IDalamudPluginInterface pluginInterface)
     {
@@ -119,6 +123,17 @@ public sealed class Configuration : IPluginConfiguration
         }
 
         configuration.pluginInterface = pluginInterface;
+        if (configuration.Version < 14)
+        {
+            configuration.ActiveTask = configuration.HuntEnabled ? AutomationTask.HuntTrain
+                : !configuration.Enabled ? AutomationTask.None
+                : configuration.OperatingMode == OperatingMode.Leader
+                    ? AutomationTask.TreasureLeader : AutomationTask.TreasureFollow;
+        }
+        if (!Enum.IsDefined(configuration.ActiveTask)) configuration.ActiveTask = AutomationTask.None;
+        configuration.Enabled = configuration.ActiveTask != AutomationTask.None;
+        configuration.HuntEnabled = configuration.ActiveTask is AutomationTask.HuntTrain or AutomationTask.HuntSonar;
+        if (configuration.HuntEnabled) configuration.OperatingMode = OperatingMode.Follow;
         if (configuration.AcceptPartyTeleportRequests)
         {
             configuration.AutoTeleport = false;
@@ -148,7 +163,7 @@ public sealed class Configuration : IPluginConfiguration
         configuration.ArrivalTolerance = Math.Clamp(configuration.ArrivalTolerance, 0f, 30f);
         configuration.TreasureSpotCorrectionRange = Math.Clamp(configuration.TreasureSpotCorrectionRange, 0f, 150f);
         configuration.DungeonFollowDistance = Math.Clamp(configuration.DungeonFollowDistance, 1.5f, 12f);
-        configuration.Version = 13;
+        configuration.Version = 14;
         configuration.Save();
         return configuration;
     }

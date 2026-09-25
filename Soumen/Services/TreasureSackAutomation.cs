@@ -65,6 +65,7 @@ public sealed class TreasureSackAutomation : IDisposable
 
         var player = Plugin.ObjectTable.LocalPlayer;
         if (!configuration.Enabled
+            || configuration.HuntEnabled
             || !configuration.AutoCollectTreasureSacks
             || mapAutomation.IsPaused
             || !TreasureContext.IsTreasureDungeon()

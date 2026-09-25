@@ -57,7 +57,7 @@ public sealed class StatisticsService : IDisposable
         }
 
         nextPollUtc = now + PollInterval;
-        if (!configuration.Enabled)
+        if (!configuration.Enabled || configuration.HuntEnabled)
         {
             hasGilBaseline = false;
             dungeonStateInitialized = false;

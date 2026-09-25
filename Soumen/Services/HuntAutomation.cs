@@ -2,7 +2,9 @@ using Dalamud.Game.Chat;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using Soumen.Models;
+using System.Text.RegularExpressions;
 
 namespace Soumen.Services;
 
@@ -16,6 +18,7 @@ public sealed class HuntAutomation : IDisposable
     private MapLinkPayload? lastLink;
     private string lastSender = string.Empty;
     private DateTime lastLinkUtc;
+    private int lastInstance;
 
     public HuntAutomation(Configuration configuration, MapFlagAutomation navigator, DiagnosticLogger diagnostics)
     {
@@ -29,24 +32,14 @@ public sealed class HuntAutomation : IDisposable
     public string LastLocation => lastLink == null ? "暂无车头坐标"
         : $"{lastLink.PlaceName}  X {lastLink.XCoord:F1}  Y {lastLink.YCoord:F1} · {lastSender}";
     public bool HasLocation => lastLink != null;
+    public int LastInstance => lastInstance;
 
     public void SetEnabled(bool enabled)
-    {
-        if (configuration.HuntEnabled == enabled) return;
-        navigator.Stop(enabled ? "切换到狩猎" : "已结束狩猎");
-        configuration.HuntEnabled = enabled;
-        if (enabled)
-        {
-            if (configuration.OperatingMode != OperatingMode.Follow)
-                navigator.SetOperatingMode(OperatingMode.Follow);
-            if (!configuration.Enabled) navigator.SetEnabled(true);
-        }
-        configuration.Save();
-    }
+        => navigator.ActivateTask(enabled ? AutomationTask.HuntTrain : AutomationTask.None);
 
     public bool AddCurrentTarget()
     {
-        var target = Plugin.TargetManager.Target;
+        var target = Plugin.TargetManager.Target as IPlayerCharacter;
         var name = target?.Name.TextValue?.Trim();
         if (string.IsNullOrWhiteSpace(name) || name == Plugin.ObjectTable.LocalPlayer?.Name.TextValue)
             return false;
@@ -62,17 +55,18 @@ public sealed class HuntAutomation : IDisposable
         leaders.Clear();
         lastLink = null;
         lastSender = string.Empty;
+        lastInstance = 0;
         if (navigator.ActiveTarget?.IsHunt == true) navigator.Stop("车头信息已清空");
     }
 
     public void NavigateLast()
     {
-        if (lastLink != null) navigator.NavigateHunt(lastLink, lastSender);
+        if (lastLink != null) navigator.NavigateHunt(lastLink, lastSender, lastInstance);
     }
 
     private void OnChatMessage(IHandleableChatMessage message)
     {
-        if (!configuration.HuntEnabled || leaders.Count == 0) return;
+        if (configuration.ActiveTask != AutomationTask.HuntTrain || leaders.Count == 0) return;
         if (message.LogKind is not (XivChatType.Shout or XivChatType.Yell or XivChatType.Say
             or XivChatType.Party or XivChatType.CrossParty)) return;
 
@@ -105,8 +99,9 @@ public sealed class HuntAutomation : IDisposable
 
         lastLink = link;
         lastSender = sender;
+        lastInstance = ParseInstance(message.Message.TextValue);
         lastLinkUtc = now;
-        diagnostics.Write("狩猎", $"{sender} 发布坐标：{link.PlaceName} ({link.XCoord:F1}, {link.YCoord:F1})。");
+        diagnostics.Write("狩猎", $"{sender} 发布坐标：{link.PlaceName} ({link.XCoord:F1}, {link.YCoord:F1})，instance={lastInstance}。");
         if (configuration.HuntAutoOpenMap)
         {
             try { Plugin.GameGui.OpenMapWithMapLink(link); }
@@ -121,5 +116,15 @@ public sealed class HuntAutomation : IDisposable
     {
         Plugin.ChatGui.ChatMessage -= OnChatMessage;
         ClearSession();
+    }
+
+    internal static int ParseInstance(string message)
+    {
+        const string icons = "";
+        for (var i = 0; i < icons.Length; i++)
+            if (message.Contains(icons[i])) return i + 1;
+        var match = Regex.Match(message, @"(?:\bi\s*|(?<!\d))([1-9])\s*(?:线|instance)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var number) ? number : 0;
     }
 }

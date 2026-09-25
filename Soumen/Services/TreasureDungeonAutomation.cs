@@ -35,6 +35,7 @@ public sealed class TreasureDungeonAutomation : IDisposable
         _ = args;
         var territory = Plugin.ClientState.TerritoryType;
         if (!configuration.Enabled
+            || configuration.HuntEnabled
             || !configuration.AutoLeaveTreasureDungeon
             || !TreasureContext.IsTreasureDungeon())
         {
@@ -56,6 +57,7 @@ public sealed class TreasureDungeonAutomation : IDisposable
         }
 
         if (!configuration.Enabled
+            || configuration.HuntEnabled
             || !configuration.AutoLeaveTreasureDungeon
             || Plugin.ClientState.TerritoryType != pendingTerritory
             || !TreasureContext.IsInDuty())
