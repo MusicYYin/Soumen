@@ -891,7 +891,7 @@ public sealed class MainWindow : Window
                 value => configuration.HuntAutoWorldVisit = value);
             ImGui.TextColored(Muted, "SS 优先；同级先本服，再按当前地图可见人数排序。");
             ImGui.TextColored(Muted, "未开怪保持约 20y；开怪后靠近；死亡报告或确认消失后换目标。");
-            ImGui.TextWrapped("Sonar 的聊天报告需要手动开启。跨服人数、未发布的存量目标无法从 Sonar 读取。");
+            ImGui.TextWrapped("Sonar 聊天报告需要手动开启；当前无法通过公开接口读取信息面板的实时状态、人数与未收到报告的目标。");
         }
     }
 
