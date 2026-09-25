@@ -21,7 +21,6 @@ public sealed class MainWindow : Window
     private readonly StatisticsService statisticsService;
     private readonly DiagnosticLogger diagnostics;
     private readonly HuntAutomation huntAutomation;
-    private readonly SonarHuntAutomation sonarAutomation;
     private readonly ISharedImmediateTexture treasureIcon;
     private readonly ISharedImmediateTexture huntIcon;
     private readonly ISharedImmediateTexture aboutIcon;
@@ -35,7 +34,6 @@ public sealed class MainWindow : Window
     private bool presetRenameOpen;
     private string includePresetId = string.Empty;
     private bool confirmStatisticsReset;
-    private AutomationTask selectedHuntTask = AutomationTask.HuntTrain;
 
     private ThemePalette Theme => GetTheme(configuration.UiTheme);
     private Vector4 Accent => Theme.Accent;
@@ -50,8 +48,7 @@ public sealed class MainWindow : Window
         AutoDiscardService autoDiscardService,
         StatisticsService statisticsService,
         DiagnosticLogger diagnostics,
-        HuntAutomation huntAutomation,
-        SonarHuntAutomation sonarAutomation)
+        HuntAutomation huntAutomation)
         : base("Soumen##SoumenMain")
     {
         this.configuration = configuration;
@@ -61,7 +58,6 @@ public sealed class MainWindow : Window
         this.statisticsService = statisticsService;
         this.diagnostics = diagnostics;
         this.huntAutomation = huntAutomation;
-        this.sonarAutomation = sonarAutomation;
         treasureIcon = Plugin.TextureProvider.GetFromManifestResource(
             typeof(MainWindow).Assembly, "Soumen.Assets.treasure-chest.jpg");
         huntIcon = Plugin.TextureProvider.GetFromManifestResource(
@@ -496,17 +492,17 @@ public sealed class MainWindow : Window
     private void DrawDependencies()
     {
         DrawSectionTitle("依赖状态");
-        if (ImGui.BeginTable("##SoumenDependencies", 2, ImGuiTableFlags.SizingStretchProp))
+        if (BeginDependencyTable("##SoumenDependencies"))
         {
             DrawDependencyRow("vnavmesh", automation.VnavmeshInstalled,
                 automation.VnavmeshInstalled ? automation.VnavmeshReady ? "已就绪" : "生成网格中" : "未加载");
             DrawLazyLootDependencyRow();
             DrawDependencyRow("Globetrotter / DR", automation.MapLocatorInstalled,
-                automation.MapLocatorInstalled ? "已连接" : "未加载");
+                automation.MapLocatorInstalled ? "已加载" : "未加载");
             DrawDependencyRow("AE Assist", automation.AeAssistInstalled,
-                automation.AeAssistInstalled ? "已连接" : "未加载（可选）");
+                automation.AeAssistInstalled ? "已加载" : "未加载（可选）");
             DrawDependencyRow("BossMod Reborn", automation.BossModRebornInstalled,
-                automation.BossModRebornInstalled ? "已连接" : "未加载（可选）");
+                automation.BossModRebornInstalled ? "已加载" : "未加载（可选）");
             ImGui.EndTable();
         }
     }
@@ -640,6 +636,10 @@ public sealed class MainWindow : Window
                 configuration.DungeonFollowDistance = followDistance;
                 configuration.Save();
             }
+            DrawCheckbox("宝物库内非战斗时自动跟随队长", nameof(configuration.DungeonAutoFollow),
+                configuration.DungeonAutoFollow, value => configuration.DungeonAutoFollow = value);
+            DrawCheckbox("优先使用 BMR 连续跟随（需安装 BossMod Reborn）", nameof(configuration.DungeonUseBossModFollow),
+                configuration.DungeonUseBossModFollow, value => configuration.DungeonUseBossModFollow = value);
             DrawCheckbox("宝物库结束且无待掷点物品时自动离开", nameof(configuration.AutoLeaveTreasureDungeon), configuration.AutoLeaveTreasureDungeon,
                 value => configuration.AutoLeaveTreasureDungeon = value);
             DrawCheckbox("自动收集金袋和银袋", nameof(configuration.AutoCollectTreasureSacks), configuration.AutoCollectTreasureSacks,
@@ -714,7 +714,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.5.1.0");
+        DrawSectionTitle("Soumen 0.5.2.0");
         ImGui.TextWrapped("自动化工具：寻宝与狩猎。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
@@ -742,15 +742,7 @@ public sealed class MainWindow : Window
     private void DrawHuntRun()
     {
         var scale = ImGuiHelpers.GlobalScale;
-        var active = configuration.ActiveTask is AutomationTask.HuntTrain or AutomationTask.HuntSonar;
-        if (active) selectedHuntTask = configuration.ActiveTask;
-        ImGui.Spacing();
-        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 8f * scale);
-        var width = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2f;
-        DrawHuntModeButton("车头跟车", "读取选中车头的地图坐标", AutomationTask.HuntTrain, width, scale);
-        ImGui.SameLine();
-        DrawHuntModeButton("Sonar S 怪", "追踪 S 怪与跨服路线", AutomationTask.HuntSonar, width, scale);
-        ImGui.PopStyleVar();
+        var active = configuration.ActiveTask == AutomationTask.HuntTrain;
         ImGui.Spacing();
         ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 7f * scale);
         ImGui.PushStyleColor(ImGuiCol.Button, active ? new Vector4(0.34f, 0.14f, 0.17f, 1f) : Theme.Button);
@@ -758,18 +750,19 @@ public sealed class MainWindow : Window
         if (ImGui.Button(active ? "关闭狩猎" : "开启狩猎", new Vector2(150f, 38f) * scale))
         {
             if (active) automation.ActivateTask(AutomationTask.None);
-            else automation.ActivateTask(selectedHuntTask);
+            else automation.ActivateTask(AutomationTask.HuntTrain);
         }
         ImGui.PopStyleColor(2);
         ImGui.SameLine();
         ImGui.BeginDisabled(!active);
-        if (ImGui.Button(automation.IsPaused ? "继续" : "暂停", new Vector2(100f, 38f) * scale))
+        ImGui.PushStyleColor(ImGuiCol.Button, automation.IsPaused ? new Vector4(0.12f, 0.42f, 0.30f, 1f) : new Vector4(0.38f, 0.30f, 0.10f, 1f));
+        if (ImGui.Button(automation.IsPaused ? "继续" : "暂停", new Vector2(104f, 38f) * scale))
             automation.SetPaused(!automation.IsPaused);
+        ImGui.PopStyleColor();
         ImGui.SameLine();
         if (ImGui.Button("停止导航", new Vector2(112f, 38f) * scale))
         {
-            if (configuration.ActiveTask == AutomationTask.HuntSonar) automation.ActivateTask(AutomationTask.None);
-            else automation.Stop("狩猎导航已停止");
+            automation.Stop("狩猎导航已停止");
         }
         ImGui.EndDisabled();
         ImGui.PopStyleVar();
@@ -783,18 +776,16 @@ public sealed class MainWindow : Window
             !active ? "●  未开启" : automation.IsPaused ? "●  已暂停" : "●  运行中");
         ImGui.SetCursorPosX(16f * scale);
         ImGui.TextWrapped(!active ? "等待开启狩猎"
-            : configuration.ActiveTask == AutomationTask.HuntSonar ? sonarAutomation.StatusText
             : automation.ActiveTarget?.IsHunt == true ? automation.StatusText : "等待选中车头发布地图坐标");
         ImGui.EndChild();
         ImGui.PopStyleColor();
         ImGui.PopStyleVar();
         ImGui.Spacing();
 
-        if (selectedHuntTask == AutomationTask.HuntTrain) DrawHuntLeaders();
-        else DrawSonarReports();
+        DrawHuntLeaders();
         ImGui.Spacing();
         DrawSectionTitle("依赖状态");
-        if (ImGui.BeginTable("##HuntDependencies", 2, ImGuiTableFlags.SizingStretchProp))
+        if (BeginDependencyTable("##HuntDependencies"))
         {
             DrawDependencyRow("vnavmesh", automation.VnavmeshInstalled,
                 automation.VnavmeshInstalled ? automation.VnavmeshReady ? "已就绪" : "生成网格中" : "未加载");
@@ -802,28 +793,8 @@ public sealed class MainWindow : Window
                 automation.AeAssistInstalled ? "已加载" : "未加载（可选）");
             DrawDependencyRow("Lifestream", automation.LifestreamInstalled,
                 automation.LifestreamInstalled ? "已加载" : "未加载（换线和跨服需要）");
-            if (selectedHuntTask == AutomationTask.HuntSonar)
-                DrawDependencyRow("Sonar", sonarAutomation.IsInstalled,
-                    sonarAutomation.IsInstalled ? "已加载" : "未加载（必需）");
             ImGui.EndTable();
         }
-    }
-
-    private void DrawHuntModeButton(string title, string subtitle, AutomationTask mode, float width, float scale)
-    {
-        var selected = selectedHuntTask == mode;
-        ImGui.PushStyleColor(ImGuiCol.Button, selected ? Theme.Button : Panel);
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, selected ? Theme.ButtonHovered : Theme.PanelHovered);
-        ImGui.PushStyleColor(ImGuiCol.Text, selected ? Theme.Text : Muted);
-        if (ImGui.Button($"{title}\n{subtitle}##{mode}", new Vector2(width, 54f * scale)))
-        {
-            selectedHuntTask = mode;
-            if (configuration.HuntEnabled && configuration.ActiveTask != mode)
-            {
-                automation.ActivateTask(mode);
-            }
-        }
-        ImGui.PopStyleColor(3);
     }
 
     private void DrawHuntLeaders()
@@ -855,17 +826,6 @@ public sealed class MainWindow : Window
         ImGui.PopStyleVar();
     }
 
-    private void DrawSonarReports()
-    {
-        DrawSectionTitle($"Sonar 待前往 S/SS · {sonarAutomation.ReportCount}");
-        if (!sonarAutomation.IsInstalled)
-            ImGui.TextColored(Warning, "Sonar 未加载；需要开启游戏聊天报告和死亡报告。");
-        else if (sonarAutomation.ReportCount == 0)
-            ImGui.TextColored(Muted, "等待 Sonar 报告；无目标时前往沙都主水晶等待。");
-        foreach (var report in sonarAutomation.PendingReports.Take(8)) ImGui.TextWrapped("●  " + report);
-        ImGui.TextColored(Muted, "当前从 Sonar 聊天报告获取猎物；人数只统计当前地图可见玩家。");
-    }
-
     private void DrawHuntSettings()
     {
         ImGui.Spacing();
@@ -883,15 +843,11 @@ public sealed class MainWindow : Window
                 value => configuration.HuntChatNotification = value);
         }
         ImGui.Spacing();
-        if (ImGui.CollapsingHeader("路线与 Sonar", ImGuiTreeNodeFlags.DefaultOpen))
+        if (ImGui.CollapsingHeader("换线", ImGuiTreeNodeFlags.DefaultOpen))
         {
             DrawCheckbox("多线地图自动核对并换线", nameof(configuration.HuntAutoInstance), configuration.HuntAutoInstance,
                 value => configuration.HuntAutoInstance = value);
-            DrawCheckbox("Sonar 模式自动经沙都跨服", nameof(configuration.HuntAutoWorldVisit), configuration.HuntAutoWorldVisit,
-                value => configuration.HuntAutoWorldVisit = value);
-            ImGui.TextColored(Muted, "SS 优先；同级先本服，再按当前地图可见人数排序。");
-            ImGui.TextColored(Muted, "未开怪保持约 20y；开怪后靠近；死亡报告或确认消失后换目标。");
-            ImGui.TextWrapped("Sonar 聊天报告需要手动开启；当前无法通过公开接口读取信息面板的实时状态、人数与未收到报告的目标。");
+            ImGui.TextColored(Muted, "从车头发出的地图链接读取线路数字；有多条线且当前线路不符时使用 Lifestream 换线。");
         }
     }
 
@@ -1322,6 +1278,14 @@ public sealed class MainWindow : Window
         ImGui.TextColored(installed ? Success : Muted, $"● {status}");
     }
 
+    private static bool BeginDependencyTable(string id)
+    {
+        if (!ImGui.BeginTable(id, 2, ImGuiTableFlags.SizingStretchProp)) return false;
+        ImGui.TableSetupColumn("插件", ImGuiTableColumnFlags.WidthFixed, 180f * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("状态", ImGuiTableColumnFlags.WidthStretch);
+        return true;
+    }
+
     private void DrawLazyLootDependencyRow()
     {
         ImGui.TableNextRow();
@@ -1329,7 +1293,7 @@ public sealed class MainWindow : Window
         ImGui.TextUnformatted("LazyLoot");
         ImGui.TableNextColumn();
         ImGui.TextColored(automation.LazyLootInstalled ? Success : Muted,
-            automation.LazyLootInstalled ? "● 已连接" : "● 未加载");
+            automation.LazyLootInstalled ? "● 已加载" : "● 未加载");
         ImGui.SameLine(0f, 10f * ImGuiHelpers.GlobalScale);
 
         DrawLazyLootModeButton(LazyLootRollMode.Need, "需");

@@ -39,7 +39,6 @@ public sealed class Plugin : IDalamudPlugin
     private readonly AutoDiscardService autoDiscardService;
     private readonly StatisticsService statisticsService;
     private readonly HuntAutomation huntAutomation;
-    private readonly SonarHuntAutomation sonarAutomation;
     private readonly MainWindow mainWindow;
 
     public Plugin()
@@ -56,9 +55,8 @@ public sealed class Plugin : IDalamudPlugin
         autoDiscardService = new AutoDiscardService(configuration, automation, diagnostics);
         statisticsService = new StatisticsService(configuration);
         huntAutomation = new HuntAutomation(configuration, automation, diagnostics);
-        sonarAutomation = new SonarHuntAutomation(configuration, automation, diagnostics);
         mainWindow = new MainWindow(configuration, automation, leaderTreasureAutomation, autoDiscardService,
-            statisticsService, diagnostics, huntAutomation, sonarAutomation);
+            statisticsService, diagnostics, huntAutomation);
         windowSystem.AddWindow(mainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -79,7 +77,6 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi -= OpenMainUi;
         CommandManager.RemoveHandler(CommandName);
         windowSystem.RemoveAllWindows();
-        sonarAutomation.Dispose();
         huntAutomation.Dispose();
         statisticsService.Dispose();
         autoDiscardService.Dispose();

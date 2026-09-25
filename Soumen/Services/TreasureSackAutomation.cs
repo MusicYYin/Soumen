@@ -1,6 +1,9 @@
 using System.Numerics;
 using Dalamud.Game.ClientState.Conditions;
+using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Plugin.Services;
+using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using NativeGameObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
 
 namespace Soumen.Services;
 
@@ -8,8 +11,7 @@ public sealed class TreasureSackAutomation : IDisposable
 {
     internal const uint GoldSackDataId = 0x1EBE47;
     internal const uint SilverSackDataId = 0x1EBE48;
-    private const float CollectionRange = 1.15f;
-    private const float PassedRange = 2.2f;
+    private const float CollectionRange = 3f;
     private const int MaxSacksPerRoute = 40;
 
     private static readonly TimeSpan UpdateInterval = TimeSpan.FromMilliseconds(80);
@@ -19,7 +21,7 @@ public sealed class TreasureSackAutomation : IDisposable
     private readonly MapFlagAutomation mapAutomation;
     private readonly DiagnosticLogger diagnostics;
     private readonly VNavmeshIpc vnavmesh;
-    private readonly HashSet<nint> passedSacks = [];
+    private readonly Dictionary<nint, DateTime> interactionTimes = [];
 
     private DateTime nextUpdateUtc = DateTime.MinValue;
     private DateTime lastRouteAttemptUtc = DateTime.MinValue;
@@ -50,7 +52,17 @@ public sealed class TreasureSackAutomation : IDisposable
         => Plugin.ObjectTable.Any(obj =>
             obj.Address != 0
             && obj.IsTargetable
-            && obj.BaseId is GoldSackDataId or SilverSackDataId);
+            && IsTreasureSack(obj));
+
+    private static bool IsTreasureSack(IGameObject obj)
+    {
+        if (obj.BaseId is GoldSackDataId or SilverSackDataId) return true;
+        var name = obj.Name.TextValue;
+        return name.Contains("金袋", StringComparison.Ordinal)
+            || name.Contains("银袋", StringComparison.Ordinal)
+            || name.Contains("Gold Sack", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Silver Sack", StringComparison.OrdinalIgnoreCase);
+    }
 
     private void OnFrameworkUpdate(IFramework framework)
     {
@@ -79,34 +91,34 @@ public sealed class TreasureSackAutomation : IDisposable
                 ConditionFlag.WatchingCutscene78))
         {
             ResetRoute(stopNavigation: true);
-            passedSacks.Clear();
+            interactionTimes.Clear();
             return;
         }
 
         var allSacks = Plugin.ObjectTable
             .Where(obj => obj.Address != 0
                 && obj.IsTargetable
-                && obj.BaseId is GoldSackDataId or SilverSackDataId)
+                && IsTreasureSack(obj))
             .Select(obj => new SackSnapshot(obj.Address, obj.Position))
             .ToList();
 
-        foreach (var sack in allSacks)
-        {
-            if (!passedSacks.Contains(sack.Address)
-                && HorizontalDistanceSquared(player.Position, sack.Position) <= PassedRange * PassedRange)
-            {
-                passedSacks.Add(sack.Address);
-            }
-        }
-
-        var remaining = allSacks.Where(sack => !passedSacks.Contains(sack.Address)).ToList();
-        if (remaining.Count == 0)
+        interactionTimes.Keys.Where(address => allSacks.All(sack => sack.Address != address)).ToList()
+            .ForEach(address => interactionTimes.Remove(address));
+        if (allSacks.Count == 0)
         {
             ResetRoute(stopNavigation: true);
-            if (allSacks.Count == 0)
-            {
-                passedSacks.Clear();
-            }
+            return;
+        }
+
+        // Reaching an object is not the same as collecting it. Interact while it is
+        // still targetable and wait for it to disappear before continuing the route.
+        var nearby = allSacks.FirstOrDefault(sack =>
+            HorizontalDistanceSquared(player.Position, sack.Position) <= CollectionRange * CollectionRange
+            && Math.Abs(player.Position.Y - sack.Position.Y) < 4f);
+        if (nearby != null)
+        {
+            ResetRoute(stopNavigation: true);
+            TryCollect(nearby, now);
             return;
         }
 
@@ -169,11 +181,24 @@ public sealed class TreasureSackAutomation : IDisposable
         }
 
         lastRouteAttemptUtc = now;
-        var ordered = OrderNearest(player.Position, remaining)
+        var ordered = OrderNearest(player.Position, allSacks)
             .Take(MaxSacksPerRoute)
             .ToList();
         var generation = ++routeGeneration;
         routeBuildTask = BuildRouteAsync(generation, player.Position, ordered);
+    }
+
+    private unsafe void TryCollect(SackSnapshot sack, DateTime now)
+    {
+        if (interactionTimes.TryGetValue(sack.Address, out var last)
+            && now - last < TimeSpan.FromSeconds(1.5)) return;
+        var obj = Plugin.ObjectTable.FirstOrDefault(candidate => candidate.Address == sack.Address);
+        var targetSystem = TargetSystem.Instance();
+        if (obj == null || !obj.IsTargetable || targetSystem == null) return;
+        interactionTimes[sack.Address] = now;
+        var success = targetSystem->InteractWithObject((NativeGameObject*)sack.Address, false);
+        diagnostics.WriteThrottled($"sack-{sack.Address}", "袋子",
+            $"尝试拾取 {obj.Name.TextValue}，baseId={obj.BaseId}，交互结果={success}。", TimeSpan.FromSeconds(4));
     }
 
     private async Task<SackRoute?> BuildRouteAsync(

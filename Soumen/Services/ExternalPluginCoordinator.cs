@@ -8,6 +8,8 @@ public sealed class ExternalPluginCoordinator
     private bool? aeTargetingEnabled;
     private bool bossModArmed;
     private bool lazyLootArmed;
+    private bool dungeonFollowArmed;
+    private float dungeonFollowDistance = float.NaN;
     private LazyLootRollMode? appliedLazyLootRollMode;
 
     public ExternalPluginCoordinator(Configuration configuration)
@@ -40,6 +42,7 @@ public sealed class ExternalPluginCoordinator
 
     public void StopRuntime()
     {
+        StopDungeonFollow();
         SetNavigating(false);
         if (bossModArmed && BossModRebornInstalled)
         {
@@ -62,6 +65,7 @@ public sealed class ExternalPluginCoordinator
         if (!BossModRebornInstalled)
         {
             bossModArmed = false;
+            dungeonFollowArmed = false;
         }
 
         if (!configuration.HuntEnabled && configuration.EnableBossModRebornIntegration && BossModRebornInstalled && !bossModArmed)
@@ -89,6 +93,35 @@ public sealed class ExternalPluginCoordinator
         {
             ApplyLazyLootRollMode();
         }
+    }
+
+    public bool SetDungeonFollow(string leaderName, float distance)
+    {
+        if (!BossModRebornInstalled || !bossModArmed || string.IsNullOrWhiteSpace(leaderName)) return false;
+        if (!dungeonFollowArmed)
+        {
+            Execute($"/bmrai follow {leaderName}");
+            Execute("/bmrai followtarget on");
+            Execute("/bmrai followoutofcombat on");
+            dungeonFollowArmed = true;
+        }
+        if (float.IsNaN(dungeonFollowDistance) || Math.Abs(dungeonFollowDistance - distance) > 0.05f)
+        {
+            Execute($"/bmrai maxdistancetarget {distance.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}");
+            dungeonFollowDistance = distance;
+        }
+        return true;
+    }
+
+    public void StopDungeonFollow()
+    {
+        if (!dungeonFollowArmed) return;
+        dungeonFollowArmed = false;
+        dungeonFollowDistance = float.NaN;
+        if (!BossModRebornInstalled) return;
+        Execute("/bmrai followoutofcombat off");
+        Execute("/bmrai maxdistancetarget 2.6");
+        Execute("/bmrai follow slot1");
     }
 
     public void ApplyLazyLootRollMode()

@@ -69,6 +69,8 @@ public sealed class MapFlagAutomation : IDisposable
     private bool teleportSawLoading;
     private bool partyTeleportSawLoading;
     private bool ownsDungeonFollow;
+    private bool dungeonFollowByBossMod;
+    private nint dungeonFollowLeaderAddress;
     private Vector3 dungeonFollowDestination;
     private DateTime lastDungeonFollowUtc = DateTime.MinValue;
     private int huntTargetInstance;
@@ -186,7 +188,7 @@ public sealed class MapFlagAutomation : IDisposable
         externalPlugins.StopRuntime();
         configuration.ActiveTask = task;
         configuration.Enabled = task != AutomationTask.None;
-        configuration.HuntEnabled = task is AutomationTask.HuntTrain or AutomationTask.HuntSonar;
+        configuration.HuntEnabled = task == AutomationTask.HuntTrain;
         if (task == AutomationTask.TreasureLeader) configuration.OperatingMode = OperatingMode.Leader;
         else if (task != AutomationTask.None) configuration.OperatingMode = OperatingMode.Follow;
         if (configuration.Enabled) externalPlugins.StartRuntime();
@@ -197,7 +199,6 @@ public sealed class MapFlagAutomation : IDisposable
                 AutomationTask.TreasureFollow => "寻宝跟车已开启",
                 AutomationTask.TreasureLeader => "寻宝车头已开启",
                 AutomationTask.HuntTrain => "狩猎跟车已开启",
-                AutomationTask.HuntSonar => "Sonar 狩猎已开启",
                 _ => "自动化已关闭",
             });
         diagnostics.Write("任务", $"启用任务：{task}。");
@@ -344,8 +345,8 @@ public sealed class MapFlagAutomation : IDisposable
             && !paused
             && configuration.OperatingMode == OperatingMode.Follow
             && configuration.AcceptPartyTeleportRequests
-            && activeTarget is { IsCrossParty: false } target
-            && Plugin.ClientState.TerritoryType == target.TerritoryId
+            && (activeTarget == null || (activeTarget is { IsCrossParty: false } target
+                && Plugin.ClientState.TerritoryType == target.TerritoryId))
             && !TreasureContext.IsTreasureDungeon();
 
     public bool NavigateTo(long targetSerial)
@@ -367,7 +368,7 @@ public sealed class MapFlagAutomation : IDisposable
         return true;
     }
 
-    public void NavigateHunt(MapLinkPayload link, string sender, int instance = 0, bool sonar = false)
+    public void NavigateHunt(MapLinkPayload link, string sender, int instance = 0)
     {
         if (!configuration.HuntEnabled || !configuration.Enabled)
         {
@@ -380,7 +381,7 @@ public sealed class MapFlagAutomation : IDisposable
         var target = new MapFlagTarget(++serial, sender, sender, 0, 0,
             link.TerritoryType.RowId, link.Map.RowId, link.RawX, link.RawY,
             link.XCoord, link.YCoord, link.PlaceName, DateTime.UtcNow,
-            IsHunt: true, IsSonar: sonar);
+            IsHunt: true);
         destinations[target.SenderKey] = target;
         SelectTarget(target, isManual: false);
         diagnostics.Write("狩猎", $"接收车头坐标：{sender}，{target.PlaceName} ({target.MapX:F1}, {target.MapY:F1})。");
@@ -540,7 +541,7 @@ public sealed class MapFlagAutomation : IDisposable
         }
 
         externalPlugins.RefreshRuntime();
-        externalPlugins.SetNavigating(huntCombatNavigation || State == AutomationState.Navigating);
+        externalPlugins.SetNavigating(huntCombatNavigation || dungeonFollowByBossMod || State == AutomationState.Navigating);
 
         if (!configuration.HuntEnabled && configuration.OperatingMode == OperatingMode.Follow && TreasureContext.IsTreasureDungeon())
         {
@@ -637,7 +638,7 @@ public sealed class MapFlagAutomation : IDisposable
 
     private unsafe void ProcessDungeonFollow(DateTime now)
     {
-        if (paused || IsLoadingOrOccupied() || Plugin.Condition[ConditionFlag.InCombat])
+        if (!configuration.DungeonAutoFollow || paused || IsLoadingOrOccupied() || Plugin.Condition[ConditionFlag.InCombat])
         {
             StopDungeonFollow();
             return;
@@ -655,8 +656,7 @@ public sealed class MapFlagAutomation : IDisposable
         var leaderId = group->PartyMembers[(int)group->PartyLeaderIndex].EntityId;
         var leader = Plugin.ObjectTable.FirstOrDefault(obj => obj.Address != 0
             && ((GameObject*)obj.Address)->EntityId == leaderId);
-        if (leader == null || leader.Address == player.Address
-            || !vnavmesh.IsInstalled || !vnavmesh.IsReady())
+        if (leader == null || leader.Address == player.Address)
         {
             StopDungeonFollow();
             return;
@@ -664,16 +664,36 @@ public sealed class MapFlagAutomation : IDisposable
 
         var gap = Vector3.Distance(player.Position, leader.Position);
         var distance = Math.Clamp(configuration.DungeonFollowDistance, 1.5f, 12f);
-        if (gap <= distance)
+        if (configuration.DungeonUseBossModFollow
+            && externalPlugins.SetDungeonFollow(leader.Name.TextValue, distance))
+        {
+            if (ownsDungeonFollow) { vnavmesh.Stop(); ownsDungeonFollow = false; }
+            dungeonFollowByBossMod = true;
+            dungeonFollowLeaderAddress = leader.Address;
+            if (Plugin.TargetManager.Target?.Address != leader.Address)
+                Plugin.TargetManager.Target = leader;
+            externalPlugins.SetNavigating(true);
+            StatusText = $"宝物库中 BMR 连续跟随队长 · {gap:F0}y（设定 {distance:F1}y）";
+            return;
+        }
+
+        if (dungeonFollowByBossMod) StopDungeonFollow();
+        if (!vnavmesh.IsInstalled || !vnavmesh.IsReady())
         {
             StopDungeonFollow();
             return;
         }
+        if (gap <= distance)
+        {
+            // Keep the active path while the leader moves: crossing the arrival
+            // radius on every update used to stop and restart navigation.
+            return;
+        }
 
         if (gap <= distance + 1.5f
-            || now - lastDungeonFollowUtc < TimeSpan.FromSeconds(2.5)
+            || now - lastDungeonFollowUtc < TimeSpan.FromSeconds(0.6)
             || ownsDungeonFollow && vnavmesh.IsBusy()
-                && Vector3.Distance(dungeonFollowDestination, leader.Position) <= 12f)
+                && Vector3.Distance(dungeonFollowDestination, leader.Position) <= 3f)
         {
             return;
         }
@@ -691,12 +711,16 @@ public sealed class MapFlagAutomation : IDisposable
 
     private void StopDungeonFollow()
     {
-        if (!ownsDungeonFollow)
+        if (dungeonFollowByBossMod)
         {
-            return;
+            externalPlugins.StopDungeonFollow();
+            if (Plugin.TargetManager.Target?.Address == dungeonFollowLeaderAddress)
+                Plugin.TargetManager.Target = null;
+            dungeonFollowByBossMod = false;
+            dungeonFollowLeaderAddress = 0;
+            externalPlugins.SetNavigating(false);
         }
-
-        vnavmesh.Stop();
+        if (ownsDungeonFollow) vnavmesh.Stop();
         ownsDungeonFollow = false;
     }
 
@@ -1625,6 +1649,7 @@ public sealed class MapFlagAutomation : IDisposable
 
     private void ResetNavigation(bool clearDestinations)
     {
+        StopDungeonFollow();
         vnavmesh.Stop();
         externalPlugins.SetNavigating(false);
         activeTarget = null;
@@ -1796,7 +1821,6 @@ public sealed class MapFlagAutomation : IDisposable
 
     private float ArrivalThreshold(MapFlagTarget? target = null)
     {
-        if (target?.IsSonar == true) return 20f;
         var tolerance = Math.Clamp(configuration.ArrivalTolerance, 0f, 30f);
         if (target?.IsOwnTreasure == true && treasureSpots.TryResolve(target, out _, out _))
         {

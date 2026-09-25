@@ -18,8 +18,7 @@ public sealed record MapFlagTarget(
     DateTime ReceivedAtUtc,
     bool IsOwnTreasure = false,
     bool IsCrossParty = false,
-    bool IsHunt = false,
-    bool IsSonar = false)
+    bool IsHunt = false)
 {
     public string SenderKey
         => IsHunt ? "hunt:leader" : IsOwnTreasure

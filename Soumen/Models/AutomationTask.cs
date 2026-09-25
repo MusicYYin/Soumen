@@ -6,5 +6,4 @@ public enum AutomationTask
     TreasureFollow,
     TreasureLeader,
     HuntTrain,
-    HuntSonar,
 }
