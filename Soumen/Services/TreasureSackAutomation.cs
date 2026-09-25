@@ -232,10 +232,10 @@ public sealed class TreasureSackAutomation : IDisposable
         if (obj == null || !obj.IsTargetable || targetSystem == null) return null;
         interactionTimes[sack.Address] = now;
         var success = targetSystem->InteractWithObject((NativeGameObject*)sack.Address, false);
-        failedInteractions[sack.Address] = success ? 0 : failedInteractions.GetValueOrDefault(sack.Address) + 1;
+        failedInteractions[sack.Address] = success != 0 ? 0 : failedInteractions.GetValueOrDefault(sack.Address) + 1;
         diagnostics.WriteThrottled($"sack-{sack.Address}", "袋子",
             $"尝试拾取 {obj.Name.TextValue}，baseId={obj.BaseId}，交互结果={success}。", TimeSpan.FromSeconds(4));
-        return success;
+        return success != 0;
     }
 
     private async Task<SackRoute?> BuildRouteAsync(
