@@ -183,7 +183,10 @@ public sealed class AutoDiscardService : IDisposable
 
     private void OnDestinationReached(MapFlagTarget target)
     {
-        _ = target;
+        if (target.IsHunt || configuration.HuntEnabled)
+        {
+            return;
+        }
         StartOrExtendSession("已到达藏宝图坐标，开始记录本轮新增物品");
     }
 
@@ -198,7 +201,7 @@ public sealed class AutoDiscardService : IDisposable
 
         nextPollUtc = now + PollInterval;
 
-        if (!configuration.Enabled || Plugin.ObjectTable.LocalPlayer == null)
+        if (!configuration.Enabled || configuration.HuntEnabled || Plugin.ObjectTable.LocalPlayer == null)
         {
             EndSession();
             return;
