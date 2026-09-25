@@ -20,7 +20,9 @@ public sealed class MainWindow : Window
     private readonly AutoDiscardService autoDiscardService;
     private readonly StatisticsService statisticsService;
     private readonly DiagnosticLogger diagnostics;
+    private readonly HuntAutomation huntAutomation;
     private readonly ISharedImmediateTexture treasureIcon;
+    private readonly ISharedImmediateTexture huntIcon;
     private readonly ISharedImmediateTexture aboutIcon;
     private MainSection selectedSection = MainSection.Treasure;
     private Vector2 expandedSize = new(800f, 500f);
@@ -45,7 +47,8 @@ public sealed class MainWindow : Window
         LeaderTreasureAutomation leaderAutomation,
         AutoDiscardService autoDiscardService,
         StatisticsService statisticsService,
-        DiagnosticLogger diagnostics)
+        DiagnosticLogger diagnostics,
+        HuntAutomation huntAutomation)
         : base("Soumen##SoumenMain")
     {
         this.configuration = configuration;
@@ -54,8 +57,11 @@ public sealed class MainWindow : Window
         this.autoDiscardService = autoDiscardService;
         this.statisticsService = statisticsService;
         this.diagnostics = diagnostics;
+        this.huntAutomation = huntAutomation;
         treasureIcon = Plugin.TextureProvider.GetFromManifestResource(
             typeof(MainWindow).Assembly, "Soumen.Assets.treasure-chest.jpg");
+        huntIcon = Plugin.TextureProvider.GetFromManifestResource(
+            typeof(MainWindow).Assembly, "Soumen.Assets.hunt.jpg");
         aboutIcon = Plugin.TextureProvider.GetFromManifestResource(
             typeof(MainWindow).Assembly, "Soumen.Assets.about-question.jpg");
 
@@ -96,6 +102,8 @@ public sealed class MainWindow : Window
             ImGui.Spacing();
             DrawSidebarItem(MainSection.Treasure, treasureIcon, "寻宝", scale);
             ImGui.Spacing();
+            DrawSidebarItem(MainSection.Hunt, huntIcon, "狩猎", scale);
+            ImGui.Spacing();
             DrawSidebarItem(MainSection.About, aboutIcon, "关于", scale);
         }
         ImGui.EndChild();
@@ -107,6 +115,10 @@ public sealed class MainWindow : Window
             if (selectedSection == MainSection.About)
             {
                 DrawAbout();
+            }
+            else if (selectedSection == MainSection.Hunt)
+            {
+                DrawHunt();
             }
             else if (ImGui.BeginTabBar("##SoumenTabs"))
             {
@@ -158,11 +170,11 @@ public sealed class MainWindow : Window
             ImGui.SetTooltip(name);
         }
 
-        var rounding = 8f * scale;
+        var rounding = 11f * scale;
         var texture = artwork.GetWrapOrEmpty();
         var drawList = ImGui.GetWindowDrawList();
         drawList.AddImageRounded(texture.Handle, start, start + size,
-            Vector2.Zero, Vector2.One, 0xFFFFFFFFu, rounding, ImDrawFlags.RoundCornersAll);
+            new Vector2(0.025f), new Vector2(0.975f), 0xFFFFFFFFu, rounding, ImDrawFlags.RoundCornersAll);
         if (selectedSection == section)
         {
             drawList.AddRect(start, start + size,
@@ -615,6 +627,13 @@ public sealed class MainWindow : Window
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("宝物库", ImGuiTreeNodeFlags.DefaultOpen))
         {
+            var followDistance = configuration.DungeonFollowDistance;
+            ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
+            if (ImGui.SliderFloat("跟随队长距离（y）", ref followDistance, 1.5f, 12f, "%.1f"))
+            {
+                configuration.DungeonFollowDistance = followDistance;
+                configuration.Save();
+            }
             DrawCheckbox("宝物库结束且无待掷点物品时自动离开", nameof(configuration.AutoLeaveTreasureDungeon), configuration.AutoLeaveTreasureDungeon,
                 value => configuration.AutoLeaveTreasureDungeon = value);
             DrawCheckbox("自动收集金袋和银袋", nameof(configuration.AutoCollectTreasureSacks), configuration.AutoCollectTreasureSacks,
@@ -689,11 +708,65 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.7.4");
+        DrawSectionTitle("Soumen 0.4.8.0");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
         ImGui.TextColored(Muted, "命令：/soumen · on · off · pause · resume · stop");
+    }
+
+    private void DrawHunt()
+    {
+        ImGui.Spacing();
+        DrawSectionTitle("狩猎");
+        var enabled = configuration.HuntEnabled;
+        if (ImGui.Checkbox("启用狩猎跟车", ref enabled)) huntAutomation.SetEnabled(enabled);
+        ImGui.TextColored(Muted, "车头只保留在当前界面会话中；关闭或重新打开界面会清空。" );
+        ImGui.Spacing();
+
+        if (ImGui.Button("添加当前目标为车头"))
+        {
+            if (!huntAutomation.AddCurrentTarget())
+                ImGui.OpenPopup("##HuntTargetMissing");
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("清空车头")) huntAutomation.ClearSession();
+        if (ImGui.BeginPopup("##HuntTargetMissing"))
+        {
+            ImGui.TextUnformatted("请先在游戏中选中一名车头玩家。");
+            ImGui.EndPopup();
+        }
+        foreach (var leader in huntAutomation.Leaders.ToList())
+        {
+            ImGui.PushID(leader);
+            ImGui.TextUnformatted(leader);
+            ImGui.SameLine();
+            if (ImGui.SmallButton("删除")) huntAutomation.RemoveLeader(leader);
+            ImGui.PopID();
+        }
+        ImGui.Spacing();
+        ImGui.TextColored(Muted, huntAutomation.LastLocation);
+        ImGui.BeginDisabled(!huntAutomation.HasLocation);
+        if (ImGui.Button("前往最近车头坐标")) huntAutomation.NavigateLast();
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        if (ImGui.Button("停止狩猎导航")) automation.Stop("狩猎导航已停止");
+        ImGui.TextColored(Muted, automation.ActiveTarget?.IsHunt == true ? automation.StatusText : "等待车头发布地图坐标");
+
+        ImGui.Separator();
+        DrawCheckbox("收到坐标自动导航", nameof(configuration.HuntAutoNavigate), configuration.HuntAutoNavigate,
+            value => configuration.HuntAutoNavigate = value);
+        DrawCheckbox("自动比较直达与以太水晶路线并传送", nameof(configuration.HuntAutoTeleport), configuration.HuntAutoTeleport,
+            value => configuration.HuntAutoTeleport = value);
+        DrawCheckbox("自动打开车头地图链接", nameof(configuration.HuntAutoOpenMap), configuration.HuntAutoOpenMap,
+            value => configuration.HuntAutoOpenMap = value);
+        DrawCheckbox("高亮车头消息", nameof(configuration.HuntHighlightLeader), configuration.HuntHighlightLeader,
+            value => configuration.HuntHighlightLeader = value);
+        DrawCheckbox("暂时隐藏其他人的喊话", nameof(configuration.HuntMuteOtherShouts), configuration.HuntMuteOtherShouts,
+            value => configuration.HuntMuteOtherShouts = value);
+        DrawCheckbox("收到新坐标时在聊天栏提醒", nameof(configuration.HuntChatNotification), configuration.HuntChatNotification,
+            value => configuration.HuntChatNotification = value);
+        ImGui.TextColored(Muted, "战斗、施法和读图期间会等待；完成后自动继续传送或导航。" );
     }
 
     private void DrawAutoDiscard()
@@ -1329,6 +1402,7 @@ public sealed class MainWindow : Window
     private enum MainSection
     {
         Treasure,
+        Hunt,
         About,
     }
 }

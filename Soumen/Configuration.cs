@@ -75,6 +75,16 @@ public sealed class Configuration : IPluginConfiguration
 
     public float TreasureSpotCorrectionRange { get; set; } = 85f;
 
+    public float DungeonFollowDistance { get; set; } = 3.5f;
+
+    public bool HuntEnabled { get; set; } = false;
+    public bool HuntAutoNavigate { get; set; } = true;
+    public bool HuntAutoTeleport { get; set; } = true;
+    public bool HuntAutoOpenMap { get; set; } = true;
+    public bool HuntHighlightLeader { get; set; } = true;
+    public bool HuntMuteOtherShouts { get; set; } = false;
+    public bool HuntChatNotification { get; set; } = true;
+
     public static Configuration Load(IDalamudPluginInterface pluginInterface)
     {
         var directory = pluginInterface.GetPluginConfigDirectory();
@@ -137,6 +147,7 @@ public sealed class Configuration : IPluginConfiguration
         configuration.StuckSeconds = Math.Clamp(configuration.StuckSeconds, 1f, 30f);
         configuration.ArrivalTolerance = Math.Clamp(configuration.ArrivalTolerance, 0f, 30f);
         configuration.TreasureSpotCorrectionRange = Math.Clamp(configuration.TreasureSpotCorrectionRange, 0f, 150f);
+        configuration.DungeonFollowDistance = Math.Clamp(configuration.DungeonFollowDistance, 1.5f, 12f);
         configuration.Version = 13;
         configuration.Save();
         return configuration;
