@@ -20,6 +20,9 @@ public sealed class MainWindow : Window
     private readonly AutoDiscardService autoDiscardService;
     private readonly StatisticsService statisticsService;
     private readonly DiagnosticLogger diagnostics;
+    private readonly ISharedImmediateTexture sidebarArtwork;
+    private MainPage activePage = MainPage.Run;
+    private string spotPreview = "尚未测试藏宝点纠偏";
     private string discardSearch = string.Empty;
     private int discardSource;
     private string presetNameDraft = string.Empty;
@@ -49,10 +52,14 @@ public sealed class MainWindow : Window
         this.autoDiscardService = autoDiscardService;
         this.statisticsService = statisticsService;
         this.diagnostics = diagnostics;
+        sidebarArtwork = Plugin.TextureProvider.GetFromManifestResource(
+            typeof(MainWindow).Assembly, "Soumen.Assets.treasure-sidebar.jpg");
+
+        Flags |= ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoCollapse;
 
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(720f, 500f),
+            MinimumSize = new Vector2(800f, 500f),
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
         };
     }
@@ -72,61 +79,94 @@ public sealed class MainWindow : Window
     {
         PushThemeColors();
         DrawHeader();
-        ImGui.Spacing();
-
-        if (ImGui.BeginTabBar("##SoumenTabs"))
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, Panel);
+        if (ImGui.BeginChild("##SoumenSidebar", new Vector2(56f * scale, 0f), false))
         {
-            if (ImGui.BeginTabItem("运行"))
+            ImGui.Spacing();
+            foreach (var page in Enum.GetValues<MainPage>())
             {
-                DrawOverview();
-                ImGui.EndTabItem();
+                DrawSidebarItem(page, scale);
+                ImGui.Spacing();
             }
-
-            if (ImGui.BeginTabItem("设置"))
-            {
-                DrawSettings();
-                ImGui.EndTabItem();
-            }
-
-            if (ImGui.BeginTabItem("自动丢弃"))
-            {
-                DrawAutoDiscard();
-                ImGui.EndTabItem();
-            }
-
-            if (ImGui.BeginTabItem("统计"))
-            {
-                DrawStatistics();
-                ImGui.EndTabItem();
-            }
-
-            if (ImGui.BeginTabItem("关于"))
-            {
-                DrawAbout();
-                ImGui.EndTabItem();
-            }
-
-            ImGui.EndTabBar();
         }
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
+
+        ImGui.SameLine();
+        if (ImGui.BeginChild("##SoumenContent", Vector2.Zero, false))
+        {
+            switch (activePage)
+            {
+                case MainPage.Run: DrawOverview(); break;
+                case MainPage.Settings: DrawSettings(); break;
+                case MainPage.Discard: DrawAutoDiscard(); break;
+                case MainPage.Statistics: DrawStatistics(); break;
+                case MainPage.About: DrawAbout(); break;
+            }
+        }
+        ImGui.EndChild();
 
         ImGui.PopStyleColor(11);
     }
 
+    private void DrawSidebarItem(MainPage page, float scale)
+    {
+        var (name, uv0, uv1) = page switch
+        {
+            MainPage.Run => ("运行", new Vector2(0.22f, 0.17f), new Vector2(0.76f, 0.72f)),
+            MainPage.Settings => ("设置", new Vector2(0.21f, 0.46f), new Vector2(0.38f, 0.70f)),
+            MainPage.Discard => ("自动丢弃", new Vector2(0.22f, 0.74f), new Vector2(0.48f, 0.96f)),
+            MainPage.Statistics => ("统计", new Vector2(0.49f, 0.31f), new Vector2(0.82f, 0.69f)),
+            _ => ("关于", new Vector2(0f, 0f), Vector2.One),
+        };
+        var size = new Vector2(38f * scale);
+        ImGui.SetCursorPosX((ImGui.GetContentRegionAvail().X - size.X) / 2f);
+        var start = ImGui.GetCursorScreenPos();
+        var texture = sidebarArtwork.GetWrapOrEmpty();
+        ImGui.Image(texture.Handle, size, uv0, uv1);
+        if (ImGui.IsItemClicked())
+        {
+            activePage = page;
+        }
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(name);
+        }
+
+        if (activePage == page)
+        {
+            ImGui.GetWindowDrawList().AddRect(start, start + size,
+                ImGui.ColorConvertFloat4ToU32(Accent), 5f * scale, default, 2f * scale);
+        }
+    }
+
     private void DrawHeader()
     {
-        ImGui.PushStyleColor(ImGuiCol.Text, Accent);
-        ImGui.SetWindowFontScale(1.28f);
-        ImGui.TextUnformatted("Soumen");
-        ImGui.SetWindowFontScale(1f);
-        ImGui.PopStyleColor();
+        var scale = ImGuiHelpers.GlobalScale;
+        var position = ImGui.GetCursorScreenPos();
+        var dragWidth = Math.Max(100f * scale, ImGui.GetContentRegionAvail().X - 36f * scale);
+        ImGui.InvisibleButton("##SoumenDragTitle", new Vector2(dragWidth, 28f * scale));
+        if (ImGui.IsItemActive() && ImGui.IsMouseDragging(ImGuiMouseButton.Left))
+        {
+            ImGui.SetWindowPos(ImGui.GetWindowPos() + ImGui.GetIO().MouseDelta);
+        }
 
+        ImGui.GetWindowDrawList().AddText(position + new Vector2(3f * scale, 5f * scale),
+            ImGui.ColorConvertFloat4ToU32(Accent), "Soumen");
         var enabled = configuration.Enabled;
         var label = !enabled ? "已关闭" : automation.IsPaused ? "已暂停" : "运行中";
         var color = !enabled ? Muted : automation.IsPaused ? Warning : Success;
-        var available = ImGui.GetContentRegionAvail().X;
-        var width = ImGui.CalcTextSize(label).X + (24f * ImGuiHelpers.GlobalScale);
-        ImGui.SameLine(Math.Max(ImGui.GetCursorPosX(), ImGui.GetCursorPosX() + available - width));
-        ImGui.TextColored(color, "●  " + label);
+        var stateText = "●  " + label;
+        var width = ImGui.CalcTextSize(stateText).X;
+        ImGui.GetWindowDrawList().AddText(position + new Vector2(dragWidth - width - 8f * scale, 5f * scale),
+            ImGui.ColorConvertFloat4ToU32(color), stateText);
+        ImGui.SameLine();
+        if (ImGui.Button("×##SoumenClose", new Vector2(30f * scale, 27f * scale)))
+        {
+            IsOpen = false;
+        }
         ImGui.Separator();
     }
 
@@ -383,8 +423,9 @@ public sealed class MainWindow : Window
             DrawDependencyRow("vnavmesh", automation.VnavmeshInstalled,
                 automation.VnavmeshInstalled ? automation.VnavmeshReady ? "已就绪" : "生成网格中" : "未加载");
             DrawLazyLootDependencyRow();
-            DrawDependencyRow("Globetrotter", automation.GlobetrotterInstalled,
-                automation.GlobetrotterInstalled ? "已连接" : "未加载");
+            DrawDependencyRow("藏宝图位置：Globetrotter / Daily Routines", automation.MapLocatorInstalled,
+                automation.GlobetrotterInstalled ? "Globetrotter 已连接"
+                    : automation.DailyRoutinesInstalled ? "Daily Routines 已连接" : "二者均未加载");
             DrawDependencyRow("AE Assist", automation.AeAssistInstalled,
                 automation.AeAssistInstalled ? "已连接" : "未加载（可选）");
             DrawDependencyRow("BossMod Reborn", automation.BossModRebornInstalled,
@@ -398,7 +439,7 @@ public sealed class MainWindow : Window
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("车头模式", ImGuiTreeNodeFlags.DefaultOpen))
         {
-            ImGui.TextColored(Muted, "支持 G8–G18、特殊图、绿图与深层绿图；Globetrotter 标记坐标，LazyLoot 处理掷点。");
+            ImGui.TextColored(Muted, "支持 G8–G18、特殊图、绿图与深层绿图；Globetrotter 或 Daily Routines 标记坐标，LazyLoot 处理掷点。");
             ImGui.SetNextItemWidth(360f * ImGuiHelpers.GlobalScale);
             if (ImGui.BeginCombo("藏宝图##LeaderTreasureMap", leaderAutomation.SelectedMapLabel))
             {
@@ -433,8 +474,7 @@ public sealed class MainWindow : Window
                 value => configuration.AutoRestockLeaderMaps = value);
             ImGui.EndDisabled();
 
-            ImGui.BeginDisabled(!configuration.AutoRestockLeaderMaps
-                || !leaderAutomation.SelectedMap.CanMarketRestock);
+            ImGui.BeginDisabled(!leaderAutomation.SelectedMap.CanMarketRestock);
             var maximumUnitPrice = (int)configuration.LeaderMapMaximumUnitPrice;
             ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
             if (ImGui.InputInt("单张最高价格（Gil）", ref maximumUnitPrice, 1_000, 10_000))
@@ -556,13 +596,43 @@ public sealed class MainWindow : Window
                 });
             ImGui.TextColored(Muted, $"日志目录：{diagnostics.DirectoryPath}");
             ImGui.TextColored(Muted, "文件名：diagnostic.log（关闭诊断模式时不会写入）");
+
+            ImGui.Separator();
+            ImGui.TextUnformatted("功能测试");
+            ImGui.TextColored(Muted, "测试使用上方选定的地图；测试结束后不会继续执行车头流程。");
+            ImGui.BeginDisabled(leaderAutomation.IsDeveloperTestRunning);
+            if (ImGui.Button("测试解读地图"))
+            {
+                leaderAutomation.TestDecipher();
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("测试自动买图（实际购买一张）"))
+            {
+                leaderAutomation.TestMarketPurchase();
+            }
+            ImGui.EndDisabled();
+            if (leaderAutomation.IsDeveloperTestRunning)
+            {
+                ImGui.SameLine();
+                if (ImGui.Button("取消测试"))
+                {
+                    leaderAutomation.CancelDeveloperTest();
+                }
+            }
+            ImGui.TextWrapped(leaderAutomation.DeveloperTestResult);
+            ImGui.Spacing();
+            if (ImGui.Button("测试当前地图旗标纠偏"))
+            {
+                spotPreview = automation.PreviewCurrentFlagCorrection();
+            }
+            ImGui.TextWrapped(spotPreview);
         }
     }
 
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.7.1");
+        DrawSectionTitle("Soumen 0.4.7.2");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
@@ -1198,4 +1268,13 @@ public sealed class MainWindow : Window
         Vector4 Text,
         Vector4 TableRowBg,
         Vector4 TableRowBgAlt);
+
+    private enum MainPage
+    {
+        Run,
+        Settings,
+        Discard,
+        Statistics,
+        About,
+    }
 }
