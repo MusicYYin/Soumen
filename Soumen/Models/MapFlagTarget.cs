@@ -17,10 +17,11 @@ public sealed record MapFlagTarget(
     string PlaceName,
     DateTime ReceivedAtUtc,
     bool IsOwnTreasure = false,
-    bool IsCrossParty = false)
+    bool IsCrossParty = false,
+    bool IsHunt = false)
 {
     public string SenderKey
-        => IsOwnTreasure
+        => IsHunt ? "hunt:leader" : IsOwnTreasure
             ? "self:treasure"
             : SenderContentId != 0
             ? $"cid:{SenderContentId}"

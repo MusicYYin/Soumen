@@ -331,6 +331,22 @@ public sealed class MapFlagAutomation : IDisposable
         return true;
     }
 
+    public void NavigateHunt(MapLinkPayload link, string sender)
+    {
+        if (!configuration.HuntEnabled || !configuration.Enabled)
+        {
+            return;
+        }
+
+        var target = new MapFlagTarget(++serial, sender, sender, 0, 0,
+            link.TerritoryType.RowId, link.Map.RowId, link.RawX, link.RawY,
+            link.XCoord, link.YCoord, link.PlaceName, DateTime.UtcNow,
+            IsHunt: true);
+        destinations[target.SenderKey] = target;
+        SelectTarget(target, isManual: false);
+        diagnostics.Write("狩猎", $"接收车头坐标：{sender}，{target.PlaceName} ({target.MapX:F1}, {target.MapY:F1})。");
+    }
+
     public void RemoveDestination(long targetSerial)
     {
         var entry = destinations.Values.FirstOrDefault(target => target.Serial == targetSerial);
@@ -358,7 +374,7 @@ public sealed class MapFlagAutomation : IDisposable
     }
 
     public Vector3 GetResolvedWorldPosition(MapFlagTarget target, float fallbackHeight)
-        => treasureSpots.TryResolve(target, out var position, out _)
+        => !target.IsHunt && treasureSpots.TryResolve(target, out var position, out _)
             ? position
             : target.ToWorld(fallbackHeight);
 
@@ -381,7 +397,7 @@ public sealed class MapFlagAutomation : IDisposable
 
     private void OnChatMessage(IHandleableChatMessage message)
     {
-        if (!configuration.Enabled
+        if (!configuration.Enabled || configuration.HuntEnabled
             || (!configuration.RecognizeAllChatCoordinates
                 && message.LogKind is not (XivChatType.Party or XivChatType.CrossParty)))
         {
@@ -487,7 +503,7 @@ public sealed class MapFlagAutomation : IDisposable
         externalPlugins.RefreshRuntime();
         externalPlugins.SetNavigating(State == AutomationState.Navigating);
 
-        if (configuration.OperatingMode == OperatingMode.Follow && TreasureContext.IsTreasureDungeon())
+        if (!configuration.HuntEnabled && configuration.OperatingMode == OperatingMode.Follow && TreasureContext.IsTreasureDungeon())
         {
             if (activeTarget != null)
             {
@@ -507,6 +523,19 @@ public sealed class MapFlagAutomation : IDisposable
                 SetState(AutomationState.Paused, "已暂停");
             }
 
+            return;
+        }
+
+        if (activeTarget?.IsHunt == true && Plugin.Condition[ConditionFlag.InCombat])
+        {
+            if (State != AutomationState.WaitingForPlayer)
+            {
+                vnavmesh.Stop();
+                externalPlugins.SetNavigating(false);
+                routePlan = null;
+                destination = null;
+                SetState(AutomationState.WaitingForPlayer, "狩猎战斗中，结束后前往车头坐标");
+            }
             return;
         }
 
@@ -595,26 +624,29 @@ public sealed class MapFlagAutomation : IDisposable
         }
 
         var gap = Vector3.Distance(player.Position, leader.Position);
-        if (gap <= 6f)
+        var distance = Math.Clamp(configuration.DungeonFollowDistance, 1.5f, 12f);
+        if (gap <= distance)
         {
             StopDungeonFollow();
             return;
         }
 
-        if (now - lastDungeonFollowUtc < TimeSpan.FromSeconds(1.2)
+        if (gap <= distance + 1.5f
+            || now - lastDungeonFollowUtc < TimeSpan.FromSeconds(2.5)
             || ownsDungeonFollow && vnavmesh.IsBusy()
-                && Vector3.Distance(dungeonFollowDestination, leader.Position) <= 5f)
+                && Vector3.Distance(dungeonFollowDestination, leader.Position) <= 12f)
         {
             return;
         }
 
-        StopDungeonFollow();
         lastDungeonFollowUtc = now;
-        dungeonFollowDestination = leader.Position;
-        ownsDungeonFollow = vnavmesh.MoveCloseTo(leader.Position, fly: false, 4f);
-        if (ownsDungeonFollow)
+        // Retarget without an explicit Path.Stop: stopping the current path first
+        // caused a visible pause after every few steps as the leader moved.
+        if (vnavmesh.MoveCloseTo(leader.Position, fly: false, distance))
         {
-            StatusText = $"宝物库中跟随队长 · {gap:F0}y";
+            ownsDungeonFollow = true;
+            dungeonFollowDestination = leader.Position;
+            StatusText = $"宝物库中跟随队长 · {gap:F0}y（设定 {distance:F1}y）";
         }
     }
 
@@ -744,6 +776,8 @@ public sealed class MapFlagAutomation : IDisposable
 
     private bool ShouldCompareTeleportRoute()
         => activeTarget != null
+            && (activeTarget.IsHunt ? configuration.HuntAutoTeleport
+                : true)
             && (configuration.OperatingMode == OperatingMode.Leader
                 || configuration.AutoTeleport
                 || configuration.AcceptPartyTeleportRequests
@@ -1565,6 +1599,13 @@ public sealed class MapFlagAutomation : IDisposable
         if (player == null)
         {
             return null;
+        }
+
+        if (target.IsHunt)
+        {
+            SetMapFlag(target);
+            var raw = target.ToWorld(player.Position.Y);
+            return vnavmesh.ResolveFlagPoint() ?? vnavmesh.NearestPoint(raw) ?? raw;
         }
 
         if (treasureSpots.TryResolve(target, out var treasureSpot, out var snapDistance))
