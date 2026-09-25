@@ -118,6 +118,8 @@ public sealed class ExternalPluginCoordinator
         dungeonFollowDistance = float.NaN;
         if (!BossModRebornInstalled) return;
         Execute("/bmrai followoutofcombat off");
+        Execute("/bmrai maxdistancetarget 2.6");
+        Execute("/bmrai follow slot1");
     }
 
     public void ApplyLazyLootRollMode()
