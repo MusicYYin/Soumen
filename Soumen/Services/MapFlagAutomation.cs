@@ -36,6 +36,7 @@ public sealed class MapFlagAutomation : IDisposable
     private readonly TreasureSpotResolver treasureSpots;
     private readonly ExternalPluginCoordinator externalPlugins;
     private readonly TeleportService teleporter;
+    private readonly LifestreamIpc lifestream;
     private readonly Dictionary<string, MapFlagTarget> destinations = [];
 
     private MapFlagTarget? activeTarget;
@@ -70,6 +71,10 @@ public sealed class MapFlagAutomation : IDisposable
     private bool ownsDungeonFollow;
     private Vector3 dungeonFollowDestination;
     private DateTime lastDungeonFollowUtc = DateTime.MinValue;
+    private int huntTargetInstance;
+    private DateTime lastInstanceRequestUtc = DateTime.MinValue;
+    private DateTime lastInstanceTeleportUtc = DateTime.MinValue;
+    private bool huntCombatNavigation;
     private bool disposed;
     private uint pendingOwnFlagTerritory;
     private uint pendingOwnFlagMap;
@@ -84,6 +89,7 @@ public sealed class MapFlagAutomation : IDisposable
         vnavmesh = new VNavmeshIpc(Plugin.PluginInterface, diagnostics);
         treasureSpots = new TreasureSpotResolver(configuration, diagnostics);
         teleporter = new TeleportService(diagnostics);
+        lifestream = new LifestreamIpc(diagnostics);
         externalPlugins = new ExternalPluginCoordinator(configuration);
 
         Plugin.ChatGui.ChatMessage += OnChatMessage;
@@ -120,6 +126,14 @@ public sealed class MapFlagAutomation : IDisposable
     public bool VnavmeshReady => vnavmesh.IsReady();
 
     public bool AeAssistInstalled => externalPlugins.AeAssistInstalled;
+    public bool LifestreamInstalled => lifestream.IsInstalled;
+    public bool IsHuntApproaching => huntCombatNavigation;
+
+    public void SetHuntCombatNavigation(bool moving)
+    {
+        huntCombatNavigation = moving;
+        externalPlugins.SetNavigating(moving || State == AutomationState.Navigating);
+    }
 
     public bool BossModRebornInstalled => externalPlugins.BossModRebornInstalled;
 
@@ -142,7 +156,7 @@ public sealed class MapFlagAutomation : IDisposable
 
         configuration.LazyLootRollMode = mode;
         configuration.Save();
-        if (configuration.Enabled)
+        if (configuration.Enabled && !configuration.HuntEnabled)
         {
             externalPlugins.ApplyLazyLootRollMode();
         }
@@ -150,15 +164,42 @@ public sealed class MapFlagAutomation : IDisposable
 
     public void SetOperatingMode(OperatingMode mode)
     {
-        if (configuration.OperatingMode == mode)
+        if (configuration.OperatingMode == mode && !configuration.HuntEnabled)
         {
             return;
         }
 
         configuration.OperatingMode = mode;
+        if (configuration.Enabled)
+        {
+            ActivateTask(mode == OperatingMode.Leader ? AutomationTask.TreasureLeader : AutomationTask.TreasureFollow);
+            return;
+        }
         configuration.Save();
-        Stop(mode == OperatingMode.Leader ? "已切换到车头模式" : "已切换到跟车模式");
-        diagnostics.Write("模式", mode == OperatingMode.Leader ? "切换到车头模式。" : "切换到跟车模式。");
+    }
+
+    public void ActivateTask(AutomationTask task)
+    {
+        if (configuration.ActiveTask == task) return;
+        ResetNavigation(clearDestinations: true);
+        externalPlugins.StopRuntime();
+        configuration.ActiveTask = task;
+        configuration.Enabled = task != AutomationTask.None;
+        configuration.HuntEnabled = task is AutomationTask.HuntTrain or AutomationTask.HuntSonar;
+        if (task == AutomationTask.TreasureLeader) configuration.OperatingMode = OperatingMode.Leader;
+        else if (task != AutomationTask.None) configuration.OperatingMode = OperatingMode.Follow;
+        if (configuration.Enabled) externalPlugins.StartRuntime();
+        configuration.Save();
+        SetState(configuration.Enabled ? AutomationState.Idle : AutomationState.Disabled,
+            task switch
+            {
+                AutomationTask.TreasureFollow => "寻宝跟车已开启",
+                AutomationTask.TreasureLeader => "寻宝车头已开启",
+                AutomationTask.HuntTrain => "狩猎跟车已开启",
+                AutomationTask.HuntSonar => "Sonar 狩猎已开启",
+                _ => "自动化已关闭",
+            });
+        diagnostics.Write("任务", $"启用任务：{task}。");
     }
 
     public unsafe MapFlagTarget? RegisterOwnFlagFromGame()
@@ -235,20 +276,12 @@ public sealed class MapFlagAutomation : IDisposable
 
     public void SetEnabled(bool enabled)
     {
-        configuration.Enabled = enabled;
-        configuration.Save();
-
-        if (!enabled)
-        {
-            paused = false;
-            ResetNavigation(clearDestinations: true);
-            externalPlugins.StopRuntime();
-            SetState(AutomationState.Disabled, "自动化已关闭");
-            return;
-        }
-
-        externalPlugins.StartRuntime();
-        SetState(AutomationState.Idle, "等待小队坐标");
+        if (!enabled) paused = false;
+        ActivateTask(enabled
+            ? configuration.HuntEnabled ? configuration.ActiveTask
+                : configuration.OperatingMode == OperatingMode.Leader
+                    ? AutomationTask.TreasureLeader : AutomationTask.TreasureFollow
+            : AutomationTask.None);
     }
 
     public void SetPaused(bool value)
@@ -305,6 +338,7 @@ public sealed class MapFlagAutomation : IDisposable
 
     public bool CanAcceptPartyTeleport()
         => configuration.Enabled
+            && !configuration.HuntEnabled
             && !paused
             && configuration.OperatingMode == OperatingMode.Follow
             && configuration.AcceptPartyTeleportRequests
@@ -322,8 +356,8 @@ public sealed class MapFlagAutomation : IDisposable
 
         if (configuration.OperatingMode == OperatingMode.Leader && !target.IsOwnTreasure)
         {
-            configuration.OperatingMode = OperatingMode.Follow;
-            configuration.Save();
+            ActivateTask(AutomationTask.TreasureFollow);
+            destinations[target.SenderKey] = target;
             diagnostics.Write("模式", "车头模式下手动选择了队友坐标，已切换到跟车模式。");
         }
 
@@ -331,17 +365,20 @@ public sealed class MapFlagAutomation : IDisposable
         return true;
     }
 
-    public void NavigateHunt(MapLinkPayload link, string sender)
+    public void NavigateHunt(MapLinkPayload link, string sender, int instance = 0, bool sonar = false)
     {
         if (!configuration.HuntEnabled || !configuration.Enabled)
         {
             return;
         }
 
+        huntTargetInstance = instance;
+        lastInstanceRequestUtc = DateTime.MinValue;
+        lastInstanceTeleportUtc = DateTime.MinValue;
         var target = new MapFlagTarget(++serial, sender, sender, 0, 0,
             link.TerritoryType.RowId, link.Map.RowId, link.RawX, link.RawY,
             link.XCoord, link.YCoord, link.PlaceName, DateTime.UtcNow,
-            IsHunt: true);
+            IsHunt: true, IsSonar: sonar);
         destinations[target.SenderKey] = target;
         SelectTarget(target, isManual: false);
         diagnostics.Write("狩猎", $"接收车头坐标：{sender}，{target.PlaceName} ({target.MapX:F1}, {target.MapY:F1})。");
@@ -501,7 +538,7 @@ public sealed class MapFlagAutomation : IDisposable
         }
 
         externalPlugins.RefreshRuntime();
-        externalPlugins.SetNavigating(State == AutomationState.Navigating);
+        externalPlugins.SetNavigating(huntCombatNavigation || State == AutomationState.Navigating);
 
         if (!configuration.HuntEnabled && configuration.OperatingMode == OperatingMode.Follow && TreasureContext.IsTreasureDungeon())
         {
@@ -678,6 +715,9 @@ public sealed class MapFlagAutomation : IDisposable
         var player = Plugin.ObjectTable.LocalPlayer;
         if (player != null
             && Plugin.ClientState.TerritoryType == target.TerritoryId
+            && !(target.IsHunt && configuration.HuntAutoInstance && huntTargetInstance > 0
+                && lifestream.GetNumberOfInstances() > 1
+                && lifestream.GetCurrentInstance() != huntTargetInstance)
             && HorizontalDistance(player.Position, GetResolvedWorldPosition(target, player.Position.Y))
                 <= ArrivalThreshold(target))
         {
@@ -741,6 +781,59 @@ public sealed class MapFlagAutomation : IDisposable
 
             StatusText = $"目标位于其他地图（Territory {activeTarget.TerritoryId}），等待进入该地图";
             return;
+        }
+
+        if (activeTarget.IsHunt && configuration.HuntAutoInstance && huntTargetInstance > 0)
+        {
+            if (!lifestream.IsInstalled)
+            {
+                StatusText = $"目标在 {huntTargetInstance} 线，等待 Lifestream 换线";
+                return;
+            }
+
+            var count = lifestream.GetNumberOfInstances();
+            if (count == 0)
+            {
+                StatusText = "正在确认当前地图的线路数量";
+                return;
+            }
+            if (count > 1 && huntTargetInstance > count)
+            {
+                StatusText = $"目标 {huntTargetInstance} 线超出当前地图的 {count} 条线路";
+                return;
+            }
+            if (count > 1 && lifestream.GetCurrentInstance() != huntTargetInstance)
+            {
+                if (DateTime.UtcNow - lastInstanceRequestUtc < TimeSpan.FromSeconds(35))
+                {
+                    StatusText = $"正在换到 {huntTargetInstance} 线";
+                    return;
+                }
+                if (lifestream.ChangeInstance(huntTargetInstance))
+                {
+                    lastInstanceRequestUtc = DateTime.UtcNow;
+                    StatusText = $"已请求换到 {huntTargetInstance} 线";
+                    diagnostics.Write("狩猎换线", StatusText);
+                    return;
+                }
+
+                var playerPosition = Plugin.ObjectTable.LocalPlayer!.Position;
+                var crystal = teleporter.GetCandidates(activeTarget.TerritoryId)
+                    .MinBy(candidate => HorizontalDistance(candidate.Position, playerPosition));
+                if (crystal == null)
+                {
+                    StatusText = "当前地图无已解锁的大水晶，无法自动换线";
+                    return;
+                }
+                if (DateTime.UtcNow - lastInstanceTeleportUtc >= TimeSpan.FromSeconds(35)
+                    && !Plugin.Condition[ConditionFlag.InCombat])
+                {
+                    lastInstanceTeleportUtc = DateTime.UtcNow;
+                    BeginTeleport(crystal);
+                }
+                else StatusText = $"正在等待靠近 {crystal.Name} 后换到 {huntTargetInstance} 线";
+                return;
+            }
         }
 
         if (!vnavmesh.IsInstalled)
@@ -1533,6 +1626,8 @@ public sealed class MapFlagAutomation : IDisposable
         vnavmesh.Stop();
         externalPlugins.SetNavigating(false);
         activeTarget = null;
+        huntTargetInstance = 0;
+        huntCombatNavigation = false;
         destination = null;
         routePlan = null;
         ResetTeleportState();
@@ -1699,6 +1794,7 @@ public sealed class MapFlagAutomation : IDisposable
 
     private float ArrivalThreshold(MapFlagTarget? target = null)
     {
+        if (target?.IsSonar == true) return 20f;
         var tolerance = Math.Clamp(configuration.ArrivalTolerance, 0f, 30f);
         if (target?.IsOwnTreasure == true && treasureSpots.TryResolve(target, out _, out _))
         {

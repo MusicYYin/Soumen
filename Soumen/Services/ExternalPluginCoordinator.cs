@@ -27,13 +27,13 @@ public sealed class ExternalPluginCoordinator
 
     public void StartRuntime()
     {
-        if (configuration.EnableBossModRebornIntegration && BossModRebornInstalled && !bossModArmed)
+        if (!configuration.HuntEnabled && configuration.EnableBossModRebornIntegration && BossModRebornInstalled && !bossModArmed)
         {
             Execute("/bmrai on");
             bossModArmed = true;
         }
 
-        ApplyLazyLootRollMode();
+        if (!configuration.HuntEnabled) ApplyLazyLootRollMode();
 
         SetNavigating(false);
     }
@@ -64,12 +64,12 @@ public sealed class ExternalPluginCoordinator
             bossModArmed = false;
         }
 
-        if (configuration.EnableBossModRebornIntegration && BossModRebornInstalled && !bossModArmed)
+        if (!configuration.HuntEnabled && configuration.EnableBossModRebornIntegration && BossModRebornInstalled && !bossModArmed)
         {
             Execute("/bmrai on");
             bossModArmed = true;
         }
-        else if (!configuration.EnableBossModRebornIntegration && bossModArmed && BossModRebornInstalled)
+        else if ((configuration.HuntEnabled || !configuration.EnableBossModRebornIntegration) && bossModArmed && BossModRebornInstalled)
         {
             Execute("/bmrai off");
             bossModArmed = false;
@@ -85,7 +85,7 @@ public sealed class ExternalPluginCoordinator
             lazyLootArmed = false;
             appliedLazyLootRollMode = null;
         }
-        else if (!lazyLootArmed)
+        else if (!lazyLootArmed && !configuration.HuntEnabled)
         {
             ApplyLazyLootRollMode();
         }
