@@ -20,8 +20,11 @@ public sealed class MainWindow : Window
     private readonly AutoDiscardService autoDiscardService;
     private readonly StatisticsService statisticsService;
     private readonly DiagnosticLogger diagnostics;
-    private readonly ISharedImmediateTexture sidebarArtwork;
-    private MainPage activePage = MainPage.Run;
+    private readonly ISharedImmediateTexture treasureIcon;
+    private readonly ISharedImmediateTexture aboutIcon;
+    private MainSection selectedSection = MainSection.Treasure;
+    private Vector2 expandedSize = new(800f, 500f);
+    private bool collapsed;
     private string spotPreview = "尚未测试藏宝点纠偏";
     private string discardSearch = string.Empty;
     private int discardSource;
@@ -52,8 +55,10 @@ public sealed class MainWindow : Window
         this.autoDiscardService = autoDiscardService;
         this.statisticsService = statisticsService;
         this.diagnostics = diagnostics;
-        sidebarArtwork = Plugin.TextureProvider.GetFromManifestResource(
-            typeof(MainWindow).Assembly, "Soumen.Assets.treasure-sidebar.jpg");
+        treasureIcon = Plugin.TextureProvider.GetFromManifestResource(
+            typeof(MainWindow).Assembly, "Soumen.Assets.treasure-chest.jpg");
+        aboutIcon = Plugin.TextureProvider.GetFromManifestResource(
+            typeof(MainWindow).Assembly, "Soumen.Assets.about-question.jpg");
 
         Flags |= ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoCollapse;
 
@@ -79,16 +84,20 @@ public sealed class MainWindow : Window
     {
         PushThemeColors();
         DrawHeader();
+        if (collapsed)
+        {
+            ImGui.PopStyleColor(11);
+            return;
+        }
+
         var scale = ImGuiHelpers.GlobalScale;
         ImGui.PushStyleColor(ImGuiCol.ChildBg, Panel);
         if (ImGui.BeginChild("##SoumenSidebar", new Vector2(56f * scale, 0f), false))
         {
             ImGui.Spacing();
-            foreach (var page in Enum.GetValues<MainPage>())
-            {
-                DrawSidebarItem(page, scale);
-                ImGui.Spacing();
-            }
+            DrawSidebarItem(MainSection.Treasure, treasureIcon, "寻宝", scale);
+            ImGui.Spacing();
+            DrawSidebarItem(MainSection.About, aboutIcon, "关于", scale);
         }
         ImGui.EndChild();
         ImGui.PopStyleColor();
@@ -96,13 +105,37 @@ public sealed class MainWindow : Window
         ImGui.SameLine();
         if (ImGui.BeginChild("##SoumenContent", Vector2.Zero, false))
         {
-            switch (activePage)
+            if (selectedSection == MainSection.About)
             {
-                case MainPage.Run: DrawOverview(); break;
-                case MainPage.Settings: DrawSettings(); break;
-                case MainPage.Discard: DrawAutoDiscard(); break;
-                case MainPage.Statistics: DrawStatistics(); break;
-                case MainPage.About: DrawAbout(); break;
+                DrawAbout();
+            }
+            else if (ImGui.BeginTabBar("##SoumenTabs"))
+            {
+                if (ImGui.BeginTabItem("运行"))
+                {
+                    DrawOverview();
+                    ImGui.EndTabItem();
+                }
+
+                if (ImGui.BeginTabItem("设置"))
+                {
+                    DrawSettings();
+                    ImGui.EndTabItem();
+                }
+
+                if (ImGui.BeginTabItem("自动丢弃"))
+                {
+                    DrawAutoDiscard();
+                    ImGui.EndTabItem();
+                }
+
+                if (ImGui.BeginTabItem("统计"))
+                {
+                    DrawStatistics();
+                    ImGui.EndTabItem();
+                }
+
+                ImGui.EndTabBar();
             }
         }
         ImGui.EndChild();
@@ -110,24 +143,16 @@ public sealed class MainWindow : Window
         ImGui.PopStyleColor(11);
     }
 
-    private void DrawSidebarItem(MainPage page, float scale)
+    private void DrawSidebarItem(MainSection section, ISharedImmediateTexture artwork, string name, float scale)
     {
-        var (name, uv0, uv1) = page switch
-        {
-            MainPage.Run => ("运行", new Vector2(0.22f, 0.17f), new Vector2(0.76f, 0.72f)),
-            MainPage.Settings => ("设置", new Vector2(0.21f, 0.46f), new Vector2(0.38f, 0.70f)),
-            MainPage.Discard => ("自动丢弃", new Vector2(0.22f, 0.74f), new Vector2(0.48f, 0.96f)),
-            MainPage.Statistics => ("统计", new Vector2(0.49f, 0.31f), new Vector2(0.82f, 0.69f)),
-            _ => ("关于", new Vector2(0f, 0f), Vector2.One),
-        };
         var size = new Vector2(38f * scale);
         ImGui.SetCursorPosX((ImGui.GetContentRegionAvail().X - size.X) / 2f);
         var start = ImGui.GetCursorScreenPos();
-        var texture = sidebarArtwork.GetWrapOrEmpty();
-        ImGui.Image(texture.Handle, size, uv0, uv1);
+        var texture = artwork.GetWrapOrEmpty();
+        ImGui.Image(texture.Handle, size);
         if (ImGui.IsItemClicked())
         {
-            activePage = page;
+            selectedSection = section;
         }
 
         if (ImGui.IsItemHovered())
@@ -135,7 +160,7 @@ public sealed class MainWindow : Window
             ImGui.SetTooltip(name);
         }
 
-        if (activePage == page)
+        if (selectedSection == section)
         {
             ImGui.GetWindowDrawList().AddRect(start, start + size,
                 ImGui.ColorConvertFloat4ToU32(Accent), 5f * scale, default, 2f * scale);
@@ -146,7 +171,7 @@ public sealed class MainWindow : Window
     {
         var scale = ImGuiHelpers.GlobalScale;
         var position = ImGui.GetCursorScreenPos();
-        var dragWidth = Math.Max(100f * scale, ImGui.GetContentRegionAvail().X - 36f * scale);
+        var dragWidth = Math.Max(100f * scale, ImGui.GetContentRegionAvail().X - 72f * scale);
         ImGui.InvisibleButton("##SoumenDragTitle", new Vector2(dragWidth, 28f * scale));
         if (ImGui.IsItemActive() && ImGui.IsMouseDragging(ImGuiMouseButton.Left))
         {
@@ -163,11 +188,43 @@ public sealed class MainWindow : Window
         ImGui.GetWindowDrawList().AddText(position + new Vector2(dragWidth - width - 8f * scale, 5f * scale),
             ImGui.ColorConvertFloat4ToU32(color), stateText);
         ImGui.SameLine();
+        if (ImGui.Button(collapsed ? "+##SoumenExpand" : "−##SoumenCollapse", new Vector2(30f * scale, 27f * scale)))
+        {
+            ToggleCollapsed();
+        }
+        ImGui.SameLine();
         if (ImGui.Button("×##SoumenClose", new Vector2(30f * scale, 27f * scale)))
         {
             IsOpen = false;
         }
         ImGui.Separator();
+    }
+
+    private void ToggleCollapsed()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        if (!collapsed)
+        {
+            expandedSize = ImGui.GetWindowSize();
+            collapsed = true;
+            SizeConstraints = new WindowSizeConstraints
+            {
+                MinimumSize = new Vector2(360f * scale, 54f * scale),
+                MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
+            };
+            Flags |= ImGuiWindowFlags.NoResize;
+            ImGui.SetWindowSize(new Vector2(400f * scale, 54f * scale));
+            return;
+        }
+
+        collapsed = false;
+        Flags &= ~ImGuiWindowFlags.NoResize;
+        SizeConstraints = new WindowSizeConstraints
+        {
+            MinimumSize = new Vector2(800f, 500f),
+            MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
+        };
+        ImGui.SetWindowSize(expandedSize);
     }
 
     private void DrawOverview()
@@ -423,9 +480,8 @@ public sealed class MainWindow : Window
             DrawDependencyRow("vnavmesh", automation.VnavmeshInstalled,
                 automation.VnavmeshInstalled ? automation.VnavmeshReady ? "已就绪" : "生成网格中" : "未加载");
             DrawLazyLootDependencyRow();
-            DrawDependencyRow("藏宝图位置：Globetrotter / Daily Routines", automation.MapLocatorInstalled,
-                automation.GlobetrotterInstalled ? "Globetrotter 已连接"
-                    : automation.DailyRoutinesInstalled ? "Daily Routines 已连接" : "二者均未加载");
+            DrawDependencyRow("Globetrotter / DR", automation.MapLocatorInstalled,
+                automation.MapLocatorInstalled ? "已连接" : "未加载");
             DrawDependencyRow("AE Assist", automation.AeAssistInstalled,
                 automation.AeAssistInstalled ? "已连接" : "未加载（可选）");
             DrawDependencyRow("BossMod Reborn", automation.BossModRebornInstalled,
@@ -632,7 +688,7 @@ public sealed class MainWindow : Window
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.7.2");
+        DrawSectionTitle("Soumen 0.4.7.3");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
@@ -1269,12 +1325,9 @@ public sealed class MainWindow : Window
         Vector4 TableRowBg,
         Vector4 TableRowBgAlt);
 
-    private enum MainPage
+    private enum MainSection
     {
-        Run,
-        Settings,
-        Discard,
-        Statistics,
+        Treasure,
         About,
     }
 }

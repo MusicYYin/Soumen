@@ -25,7 +25,8 @@ public sealed class LeaderTreasureAutomation : IDisposable
     private const ushort LimsaLominsaLowerDecksTerritoryId = 129;
     private static readonly uint[] MarketBoardDataIds = [2000402, 2000442];
     private const float ObjectApproachRange = 3.2f;
-    private const float MarketBoardInteractionRange = 2.9f;
+    // vnavmesh stops about 3.3y from Limsa's board; the game accepts interaction there.
+    private const float MarketBoardInteractionRange = 4f;
     private const float OutdoorObjectSearchRange = 55f;
 
     private static readonly InventoryType[] MainInventories =
