@@ -25,7 +25,6 @@ public sealed class MainWindow : Window
     private MainSection selectedSection = MainSection.Treasure;
     private Vector2 expandedSize = new(800f, 500f);
     private bool collapsed;
-    private string spotPreview = "尚未测试藏宝点纠偏";
     private string discardSearch = string.Empty;
     private int discardSource;
     private string presetNameDraft = string.Empty;
@@ -148,8 +147,7 @@ public sealed class MainWindow : Window
         var size = new Vector2(38f * scale);
         ImGui.SetCursorPosX((ImGui.GetContentRegionAvail().X - size.X) / 2f);
         var start = ImGui.GetCursorScreenPos();
-        var texture = artwork.GetWrapOrEmpty();
-        ImGui.Image(texture.Handle, size);
+        ImGui.InvisibleButton($"##SoumenNav{section}", size);
         if (ImGui.IsItemClicked())
         {
             selectedSection = section;
@@ -160,10 +158,15 @@ public sealed class MainWindow : Window
             ImGui.SetTooltip(name);
         }
 
+        var rounding = 8f * scale;
+        var texture = artwork.GetWrapOrEmpty();
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddImageRounded(texture.Handle, start, start + size,
+            Vector2.Zero, Vector2.One, 0xFFFFFFFFu, rounding, ImDrawFlags.RoundCornersAll);
         if (selectedSection == section)
         {
-            ImGui.GetWindowDrawList().AddRect(start, start + size,
-                ImGui.ColorConvertFloat4ToU32(Accent), 5f * scale, default, 2f * scale);
+            drawList.AddRect(start, start + size,
+                ImGui.ColorConvertFloat4ToU32(Accent), rounding, ImDrawFlags.RoundCornersAll, 2f * scale);
         }
     }
 
@@ -569,6 +572,15 @@ public sealed class MainWindow : Window
                 configuration.ArrivalTolerance = tolerance;
                 configuration.Save();
             }
+
+            var correctionRange = configuration.TreasureSpotCorrectionRange;
+            ImGui.SetNextItemWidth(240f * ImGuiHelpers.GlobalScale);
+            if (ImGui.SliderFloat("藏宝点纠偏范围（y）", ref correctionRange, 0f, 150f, "%.0f"))
+            {
+                configuration.TreasureSpotCorrectionRange = MathF.Round(correctionRange);
+                configuration.Save();
+            }
+            ImGui.TextColored(Muted, "旗标距真实挖掘点不超过此范围时才纠偏；0 表示关闭纠偏。");
         }
 
         ImGui.Spacing();
@@ -661,11 +673,6 @@ public sealed class MainWindow : Window
             {
                 leaderAutomation.TestDecipher();
             }
-            ImGui.SameLine();
-            if (ImGui.Button("测试自动买图（实际购买一张）"))
-            {
-                leaderAutomation.TestMarketPurchase();
-            }
             ImGui.EndDisabled();
             if (leaderAutomation.IsDeveloperTestRunning)
             {
@@ -676,19 +683,13 @@ public sealed class MainWindow : Window
                 }
             }
             ImGui.TextWrapped(leaderAutomation.DeveloperTestResult);
-            ImGui.Spacing();
-            if (ImGui.Button("测试当前地图旗标纠偏"))
-            {
-                spotPreview = automation.PreviewCurrentFlagCorrection();
-            }
-            ImGui.TextWrapped(spotPreview);
         }
     }
 
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.4.7.3");
+        DrawSectionTitle("Soumen 0.4.7.4");
         ImGui.TextWrapped("藏宝图导航与自动流程。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
