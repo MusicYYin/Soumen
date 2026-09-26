@@ -665,6 +665,11 @@ public sealed class MainWindow : Window
     {
         ImGui.Spacing();
         DrawSectionTitle("工具");
+        if (ImGui.CollapsingHeader("战斗相关", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            DrawCheckbox("后摇可移动", nameof(configuration.NoBackswingMovement),
+                configuration.NoBackswingMovement, value => configuration.NoBackswingMovement = value);
+        }
         if (ImGui.CollapsingHeader("战场透视", ImGuiTreeNodeFlags.DefaultOpen))
         {
             DrawCheckbox("启用战场透视", nameof(configuration.FrontlineRadarEnabled),

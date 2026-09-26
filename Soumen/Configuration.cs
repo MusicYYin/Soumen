@@ -75,6 +75,8 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool FrontlineRadarBattleHighIcons { get; set; } = true;
 
+    public bool NoBackswingMovement { get; set; } = false;
+
     public bool TeleportWhenStuck { get; set; } = true;
 
     public bool DiagnosticMode { get; set; } = false;
