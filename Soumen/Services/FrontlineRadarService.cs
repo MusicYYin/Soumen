@@ -1,6 +1,6 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
-using Dalamud.Game.ClientState.Objects.Types;
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Interface.Utility;
 using NativeBattleChara = FFXIVClientStructs.FFXIV.Client.Game.Character.BattleChara;
 
