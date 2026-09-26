@@ -1,4 +1,5 @@
 using Dalamud.Game.Command;
+using System.Diagnostics;
 using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
@@ -50,6 +51,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly IChingMovingCastService iChingMovingCastService;
     private readonly IChingCastRecastService iChingCastRecastService;
     private readonly MainWindow mainWindow;
+    private DateTime lastToolHealthUtc;
 
     public Plugin()
     {
@@ -85,10 +87,12 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.Draw += windowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi += OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi += OpenMainUi;
+        Framework.Update += LogToolHealth;
     }
 
     public void Dispose()
     {
+        Framework.Update -= LogToolHealth;
         diagnostics.Write("运行", "Soumen 正在卸载。");
         PluginInterface.UiBuilder.Draw -= windowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= OpenMainUi;
@@ -121,5 +125,34 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     private void OpenMainUi() => mainWindow.IsOpen = true;
+
+    private void LogToolHealth(IFramework framework)
+    {
+        _ = framework;
+        if (!configuration.DiagnosticMode || DateTime.UtcNow - lastToolHealthUtc < TimeSpan.FromSeconds(20)) return;
+        lastToolHealthUtc = DateTime.UtcNow;
+        var selected = new List<string>();
+        if (configuration.IChingSpeedEnabled) selected.Add("移速");
+        if (configuration.IChingMaxAcceleration) selected.Add("最大加速度");
+        if (configuration.IChingForceMovement) selected.Add("强制移动");
+        if (configuration.IChingAntiKnockback) selected.Add("防击退");
+        if (configuration.IChingNoFallDamage) selected.Add("掉落无伤");
+        if (configuration.IChingVerticalMovement) selected.Add("飞天遁地");
+        if (configuration.IChingNoDrop) selected.Add("无掉落");
+        if (configuration.IChingIgnoreCharm) selected.Add("无视魅惑恐惧");
+        if (configuration.IChingStatusBlock) selected.Add("状态屏蔽");
+        if (configuration.IChingMovingCast) selected.Add("移动读条");
+        if (configuration.IChingActionRangeEnabled) selected.Add("技能距离");
+        if (configuration.IChingTargetRadiusEnabled) selected.Add("目标圈大小");
+        if (configuration.NoBackswingMovement) selected.Add("后摇可移动");
+        if (configuration.IChingNoActionMove) selected.Add("突进无位移");
+        if (configuration.IChingRecastReduction) selected.Add("复唱缩减");
+        if (configuration.IChingCastReduction) selected.Add("咏唱缩减");
+        if (configuration.CancelFishingAnimation) selected.Add("取消钓鱼动画");
+        if (configuration.FrontlineRadarEnabled) selected.Add("战场透视");
+        if (selected.Count == 0) return;
+        using var process = Process.GetCurrentProcess();
+        diagnostics.Write("工具状态", $"已开启：{string.Join("、", selected)}；客户端模块=0x{process.MainModule?.ModuleMemorySize ?? 0:X}；地图={ClientState.TerritoryType}；PvP={ClientState.IsPvP}。");
+    }
 
 }

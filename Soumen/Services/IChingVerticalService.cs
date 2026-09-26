@@ -37,10 +37,8 @@ internal sealed unsafe class IChingVerticalService : IDisposable
     private void Update(IFramework framework)
     {
         _ = framework;
-        if (AppDomain.CurrentDomain.GetAssemblies().Any(assembly =>
-                assembly.GetType("SamplePlugin.Hook.YMove", false) != null)) return;
-
-        var enabled = configuration.IChingVerticalMovement;
+        var enabled = configuration.IChingVerticalMovement
+            && !IChingOriginalHookGuard.Blocks("YMove", true, diagnostics);
         if (!enabled || failed)
         {
             if (normal?.IsEnabled == true) normal.Disable();
@@ -72,8 +70,8 @@ internal sealed unsafe class IChingVerticalService : IDisposable
             }
         }
 
-        if (normal?.IsEnabled == false) normal.Enable();
-        if (combat?.IsEnabled == false) combat.Enable();
+        if (normal?.IsEnabled == false) { normal.Enable(); diagnostics.Write("I-Ching Hook", "飞天遁地普通移动已接管。"); }
+        if (combat?.IsEnabled == false) { combat.Enable(); diagnostics.Write("I-Ching Hook", "飞天遁地战斗移动已接管。"); }
 
         var player = Plugin.ObjectTable.LocalPlayer;
         if (player == null || player.Address == 0) return;

@@ -50,10 +50,12 @@ internal sealed unsafe class IChingCastRecastService : IDisposable
     private void Update(IFramework framework)
     {
         _ = framework;
-        if (AppDomain.CurrentDomain.GetAssemblies().Any(assembly =>
-                assembly.GetType("SamplePlugin.Hook.CastHook", false) != null)) return;
+        var castRequested = configuration.IChingCastReduction
+            && !IChingOriginalHookGuard.Blocks("CastHook", true, diagnostics);
+        var recastRequested = configuration.IChingRecastReduction
+            && !IChingOriginalHookGuard.Blocks("RecastHook", true, diagnostics);
 
-        if (configuration.IChingCastReduction && castTime == null && !castFailed)
+        if (castRequested && castTime == null && !castFailed)
         {
             try
             {
@@ -75,7 +77,7 @@ internal sealed unsafe class IChingCastRecastService : IDisposable
             }
         }
 
-        if (configuration.IChingRecastReduction && recastTime == null && !recastFailed)
+        if (recastRequested && recastTime == null && !recastFailed)
         {
             try
             {
@@ -87,9 +89,9 @@ internal sealed unsafe class IChingCastRecastService : IDisposable
 
         try
         {
-            Switch(castTime, configuration.IChingCastReduction && !castFailed);
-            Switch(castProgress, configuration.IChingCastReduction && !castFailed);
-            Switch(recastTime, configuration.IChingRecastReduction && !recastFailed);
+            Switch(castTime, castRequested && !castFailed, "咏唱缩减计时");
+            Switch(castProgress, castRequested && !castFailed, "咏唱缩减进度");
+            Switch(recastTime, recastRequested && !recastFailed, "复唱缩减");
         }
         catch (Exception e) { Report("咏唱／复唱 Hook", e); }
     }
@@ -101,10 +103,11 @@ internal sealed unsafe class IChingCastRecastService : IDisposable
             throw new InvalidOperationException("客户端模块与 Hook 快照不同");
     }
 
-    private static void Switch<T>(Hook<T>? hook, bool enabled) where T : Delegate
+    private void Switch<T>(Hook<T>? hook, bool enabled, string feature) where T : Delegate
     {
         if (hook == null || hook.IsEnabled == enabled) return;
-        if (enabled) hook.Enable(); else hook.Disable();
+        if (enabled) { hook.Enable(); diagnostics.Write("I-Ching Hook", $"{feature}已接管。"); }
+        else hook.Disable();
     }
 
     private int ShortenCast(uint type, uint actionId, bool adjusted, byte* context)

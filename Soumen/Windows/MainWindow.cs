@@ -1516,6 +1516,10 @@ public sealed class MainWindow : Window
         {
             update(value);
             configuration.Save();
+            if (id.StartsWith("IChing", StringComparison.Ordinal)
+                || id.StartsWith("FrontlineRadar", StringComparison.Ordinal)
+                || id is nameof(Configuration.NoBackswingMovement) or nameof(Configuration.CancelFishingAnimation))
+                diagnostics.Write("工具开关", $"{label}：{(value ? "开启" : "关闭")}。");
         }
     }
 

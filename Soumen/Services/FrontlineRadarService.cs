@@ -26,12 +26,23 @@ public sealed class FrontlineRadarService : IDisposable
 
     private unsafe void Draw()
     {
-        if (!configuration.FrontlineRadarEnabled || !Plugin.ClientState.IsPvP)
+        if (!configuration.FrontlineRadarEnabled)
             return;
+
+        if (!Plugin.ClientState.IsPvP)
+        {
+            diagnostics.WriteThrottled("iching-frontline-inactive", "战场透视",
+                $"当前地图={Plugin.ClientState.TerritoryType}，未处于 PvP 地图，未绘制。", TimeSpan.FromSeconds(30));
+            return;
+        }
 
         var local = Plugin.ObjectTable.LocalPlayer;
         if (local == null || local.Address == 0)
+        {
+            diagnostics.WriteThrottled("iching-frontline-no-player", "战场透视",
+                "角色对象尚未加载，未绘制。", TimeSpan.FromSeconds(30));
             return;
+        }
 
         var localBattalion = ((NativeBattleChara*)local.Address)->Battalion;
         var maxDistanceSquared = configuration.FrontlineRadarRange * configuration.FrontlineRadarRange;
