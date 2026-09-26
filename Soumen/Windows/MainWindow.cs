@@ -18,6 +18,17 @@ public sealed class MainWindow : Window
     private static readonly Vector4 PauseButtonHovered = new(0.67f, 0.24f, 0.32f, 1f);
     private static readonly Vector4 StopNavigationButton = new(0.23f, 0.33f, 0.48f, 1f);
     private static readonly Vector4 StopNavigationButtonHovered = new(0.30f, 0.42f, 0.59f, 1f);
+    private static readonly UiTheme[] ThemeOrder =
+    [
+        UiTheme.Rainbow, UiTheme.Dark, UiTheme.Light, UiTheme.Twilight,
+        UiTheme.Ocean, UiTheme.Forest, UiTheme.Rose, UiTheme.Amber,
+    ];
+    private static readonly Vector4[] RainbowColors =
+    [
+        new(0.96f, 0.39f, 0.48f, 1f), new(0.99f, 0.69f, 0.36f, 1f),
+        new(0.96f, 0.83f, 0.43f, 1f), new(0.40f, 0.83f, 0.62f, 1f),
+        new(0.42f, 0.71f, 0.96f, 1f), new(0.75f, 0.53f, 0.97f, 1f),
+    ];
 
     private readonly Configuration configuration;
     private readonly MapFlagAutomation automation;
@@ -218,8 +229,7 @@ public sealed class MainWindow : Window
             ImGui.SetWindowPos(ImGui.GetWindowPos() + ImGui.GetIO().MouseDelta);
         }
 
-        ImGui.GetWindowDrawList().AddText(position + new Vector2(3f * scale, 5f * scale),
-            ImGui.ColorConvertFloat4ToU32(Accent), "Soumen");
+        DrawRainbowTitle(position + new Vector2(3f * scale, 5f * scale));
         var enabled = configuration.Enabled;
         var label = !enabled ? "未开启" : automation.IsPaused ? "已暂停" : "运行中";
         var color = !enabled ? Muted : automation.IsPaused ? Warning : Success;
@@ -242,17 +252,31 @@ public sealed class MainWindow : Window
         {
             var start = ImGui.GetCursorScreenPos();
             var stripeWidth = ImGui.GetContentRegionAvail().X;
-            Vector4[] colors = [
-                new(0.96f, 0.39f, 0.48f, 1f), new(0.99f, 0.69f, 0.36f, 1f),
-                new(0.96f, 0.83f, 0.43f, 1f), new(0.40f, 0.83f, 0.62f, 1f),
-                new(0.42f, 0.71f, 0.96f, 1f), new(0.75f, 0.53f, 0.97f, 1f),
-            ];
-            for (var i = 0; i < colors.Length; i++)
+            for (var i = 0; i < RainbowColors.Length; i++)
                 ImGui.GetWindowDrawList().AddRectFilled(
-                    start + new Vector2(stripeWidth * i / colors.Length, 0f),
-                    start + new Vector2(stripeWidth * (i + 1) / colors.Length, 3f * scale),
-                    ImGui.ColorConvertFloat4ToU32(colors[i]));
+                    start + new Vector2(stripeWidth * i / RainbowColors.Length, 0f),
+                    start + new Vector2(stripeWidth * (i + 1) / RainbowColors.Length, 3f * scale),
+                    ImGui.ColorConvertFloat4ToU32(RainbowColors[i]));
             ImGui.Dummy(new Vector2(0f, 4f * scale));
+        }
+    }
+
+    private void DrawRainbowTitle(Vector2 start)
+    {
+        const string title = "Soumen";
+        var phase = (float)((DateTime.UtcNow.TimeOfDay.TotalSeconds * 0.12) % RainbowColors.Length);
+        var drawList = ImGui.GetWindowDrawList();
+        var offset = 0f;
+        for (var i = 0; i < title.Length; i++)
+        {
+            var letter = title[i].ToString();
+            var colorPosition = (phase + i * 0.8f) % RainbowColors.Length;
+            var first = (int)colorPosition;
+            var color = Vector4.Lerp(RainbowColors[first], RainbowColors[(first + 1) % RainbowColors.Length], colorPosition - first);
+            if (configuration.UiTheme == UiTheme.Light)
+                color = new Vector4(color.X * 0.64f, color.Y * 0.55f, color.Z * 0.64f, 1f);
+            drawList.AddText(start + new Vector2(offset, 0f), ImGui.ColorConvertFloat4ToU32(color), letter);
+            offset += ImGui.CalcTextSize(letter).X;
         }
     }
 
@@ -1144,7 +1168,7 @@ public sealed class MainWindow : Window
             ImGui.SetNextItemWidth(260f * ImGuiHelpers.GlobalScale);
             if (ImGui.BeginCombo("主题颜色##SoumenUiTheme", GetThemeName(configuration.UiTheme)))
             {
-                foreach (var theme in Enum.GetValues<UiTheme>())
+                foreach (var theme in ThemeOrder)
                 {
                     var selected = configuration.UiTheme == theme;
                     ImGui.PushStyleColor(ImGuiCol.Text, GetTheme(theme).Accent);

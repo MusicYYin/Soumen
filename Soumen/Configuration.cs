@@ -66,7 +66,7 @@ public sealed class Configuration : IPluginConfiguration
 
     public string ActiveAutoDiscardPresetId { get; set; } = string.Empty;
 
-    public UiTheme UiTheme { get; set; } = UiTheme.Ocean;
+    public UiTheme UiTheme { get; set; } = UiTheme.Rainbow;
 
     public bool FrontlineRadarEnabled { get; set; } = false;
 
@@ -211,7 +211,7 @@ public sealed class Configuration : IPluginConfiguration
         configuration.NormalizeDiscardPresets();
         if (!Enum.IsDefined(typeof(UiTheme), configuration.UiTheme))
         {
-            configuration.UiTheme = UiTheme.Ocean;
+            configuration.UiTheme = UiTheme.Rainbow;
         }
         if (!Enum.IsDefined(typeof(LazyLootRollMode), configuration.LazyLootRollMode))
         {
