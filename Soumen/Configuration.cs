@@ -82,6 +82,8 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool CancelFishingAnimation { get; set; } = false;
 
+    public HashSet<string> ToolFavorites { get; set; } = [];
+
     public bool ToolSpeedEnabled { get; set; } = false;
 
     public float ToolSpeedMultiplier { get; set; } = 1.2f;
@@ -223,6 +225,7 @@ public sealed class Configuration : IPluginConfiguration
         configuration.TreasureSpotCorrectionRange = Math.Clamp(configuration.TreasureSpotCorrectionRange, 0f, 150f);
         configuration.DungeonFollowDistance = Math.Clamp(configuration.DungeonFollowDistance, 1.5f, 12f);
         configuration.FrontlineRadarRange = Math.Clamp(configuration.FrontlineRadarRange, 20f, 200f);
+        configuration.ToolFavorites ??= [];
         configuration.ToolSpeedMultiplier = Math.Clamp(configuration.ToolSpeedMultiplier, 1f, 5f);
         configuration.ToolActionRangeBonus = Math.Clamp(configuration.ToolActionRangeBonus, 0f, 2f);
         configuration.ToolTargetRadius = Math.Clamp(configuration.ToolTargetRadius, 0f, 5f);

@@ -76,7 +76,7 @@ public sealed class Plugin : IDalamudPlugin
         toolMovingCastService = new ToolMovingCastService(configuration, diagnostics);
         toolCastRecastService = new ToolCastRecastService(configuration, diagnostics);
         mainWindow = new MainWindow(configuration, automation, leaderTreasureAutomation, autoDiscardService,
-            statisticsService, diagnostics, huntAutomation);
+            statisticsService, diagnostics, huntAutomation, IsToolActive);
         windowSystem.AddWindow(mainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -125,6 +125,30 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     private void OpenMainUi() => mainWindow.IsOpen = true;
+
+    private bool IsToolActive(string id) => id switch
+    {
+        nameof(Configuration.ToolSpeedEnabled) => toolMovementService.SpeedActive,
+        nameof(Configuration.ToolMaxAcceleration) => toolMovementService.AccelerationActive,
+        nameof(Configuration.ToolForceMovement) => toolMovementService.ForceMovementActive,
+        nameof(Configuration.ToolAntiKnockback) => toolMovementService.AntiKnockbackActive,
+        nameof(Configuration.ToolNoFallDamage) => toolMovementService.FallDamageActive,
+        nameof(Configuration.ToolNoDrop) => toolMovementService.NoDropActive,
+        nameof(Configuration.ToolIgnoreCharm) => toolStatusService.IgnoreCharmActive,
+        nameof(Configuration.ToolStatusBlock) => toolStatusService.StatusBlockActive,
+        nameof(Configuration.ToolVerticalMovement) => toolVerticalService.IsActive,
+        nameof(Configuration.ToolMovingCast) => toolMovingCastService.IsActive,
+        nameof(Configuration.ToolActionRangeEnabled) => toolCombatService.ActionRangeActive,
+        nameof(Configuration.ToolTargetRadiusEnabled) => toolCombatService.ActorRadiusActive,
+        nameof(Configuration.NoBackswingMovement) => toolCombatService.BackswingActive,
+        nameof(Configuration.ToolNoActionMove) => toolCombatService.NoActionMoveActive,
+        nameof(Configuration.ToolRecastReduction) => toolCastRecastService.RecastActive,
+        nameof(Configuration.ToolCastReduction) => toolCastRecastService.CastActive,
+        nameof(Configuration.CancelFishingAnimation) => toolFishingService.IsActive,
+        nameof(Configuration.FrontlineRadarEnabled) => configuration.FrontlineRadarEnabled
+            && ClientState.IsPvP && ObjectTable.LocalPlayer != null,
+        _ => false,
+    };
 
     private void LogToolHealth(IFramework framework)
     {

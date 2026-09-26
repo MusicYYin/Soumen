@@ -43,6 +43,13 @@ internal sealed class ToolMovementService : IDisposable
     private Hook<MovePermissionDelegate>? permissionHook;
     private Hook<AntiKnockbackDelegate>? knockbackHook;
     private Hook<FallCheckDelegate>? fallCheckHook;
+
+    public bool SpeedActive => speedHook?.IsEnabled == true;
+    public bool AccelerationActive => accelerationHook?.IsEnabled == true;
+    public bool FallDamageActive => fallDamageHook?.IsEnabled == true;
+    public bool ForceMovementActive => permissionHook?.IsEnabled == true;
+    public bool AntiKnockbackActive => knockbackHook?.IsEnabled == true;
+    public bool NoDropActive => fallCheckHook?.IsEnabled == true;
     private bool speedFailed;
     private bool accelerationFailed;
     private bool fallDamageFailed;

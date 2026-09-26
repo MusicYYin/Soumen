@@ -15,6 +15,8 @@ internal sealed unsafe class ToolVerticalService : IDisposable
     private readonly DiagnosticLogger diagnostics;
     private Hook<MovementDelegate>? normal;
     private Hook<MovementDelegate>? combat;
+
+    public bool IsActive => normal?.IsEnabled == true && combat?.IsEnabled == true;
     private bool failed;
     private float appliedOffset;
     private nint lastPlayer;

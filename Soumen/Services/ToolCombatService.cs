@@ -26,6 +26,11 @@ internal sealed class ToolCombatService : IDisposable
     private Hook<GetActionRangeDelegate>? actionRange;
     private Hook<GetActorRadiusDelegate>? actorRadius;
     private Hook<NoActionMoveDelegate>? noActionMove;
+
+    public bool BackswingActive => noBackswing?.IsEnabled == true;
+    public bool ActionRangeActive => actionRange?.IsEnabled == true;
+    public bool ActorRadiusActive => actorRadius?.IsEnabled == true;
+    public bool NoActionMoveActive => noActionMove?.IsEnabled == true;
     private bool backswingFailed;
     private bool rangeFailed;
     private bool radiusFailed;

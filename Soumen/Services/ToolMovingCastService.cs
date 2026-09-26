@@ -21,6 +21,8 @@ internal sealed class ToolMovingCastService : IDisposable
     private readonly Configuration configuration;
     private readonly DiagnosticLogger diagnostics;
     private Hook<SendPacketDelegate>? packetHook;
+
+    public bool IsActive => packetHook?.IsEnabled == true;
     private uint normalOpcode;
     private uint combatOpcode;
     private bool failed;

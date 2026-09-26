@@ -28,6 +28,9 @@ internal sealed unsafe class ToolCastRecastService : IDisposable
     private Hook<GetCastTimeDelegate>? castTime;
     private Hook<CastProgressDelegate>? castProgress;
     private Hook<GetRecastTimeDelegate>? recastTime;
+
+    public bool CastActive => castTime?.IsEnabled == true && castProgress?.IsEnabled == true;
+    public bool RecastActive => recastTime?.IsEnabled == true;
     private float* castProgressValue;
     private bool castFailed;
     private bool recastFailed;
