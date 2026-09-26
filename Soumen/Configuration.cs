@@ -65,6 +65,12 @@ public sealed class Configuration : IPluginConfiguration
 
     public UiTheme UiTheme { get; set; } = UiTheme.Ocean;
 
+    public bool FrontlineRadarEnabled { get; set; } = false;
+
+    public float FrontlineRadarRange { get; set; } = 100f;
+
+    public bool FrontlineRadarLines { get; set; } = false;
+
     public bool TeleportWhenStuck { get; set; } = true;
 
     public bool DiagnosticMode { get; set; } = false;
@@ -160,6 +166,7 @@ public sealed class Configuration : IPluginConfiguration
         configuration.ArrivalTolerance = Math.Clamp(configuration.ArrivalTolerance, 0f, 30f);
         configuration.TreasureSpotCorrectionRange = Math.Clamp(configuration.TreasureSpotCorrectionRange, 0f, 150f);
         configuration.DungeonFollowDistance = Math.Clamp(configuration.DungeonFollowDistance, 1.5f, 12f);
+        configuration.FrontlineRadarRange = Math.Clamp(configuration.FrontlineRadarRange, 20f, 200f);
         configuration.Version = 15;
         configuration.Save();
         return configuration;
