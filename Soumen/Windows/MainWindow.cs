@@ -746,6 +746,8 @@ public sealed class MainWindow : Window
             }
             DrawCheckbox("后摇可移动", nameof(configuration.NoBackswingMovement),
                 configuration.NoBackswingMovement, value => configuration.NoBackswingMovement = value);
+            DrawCheckbox("突进无位移", nameof(configuration.IChingNoActionMove),
+                configuration.IChingNoActionMove, value => configuration.IChingNoActionMove = value);
             DrawCheckbox("复唱缩减", nameof(configuration.IChingRecastReduction),
                 configuration.IChingRecastReduction, value => configuration.IChingRecastReduction = value);
             if (configuration.IChingRecastReduction)

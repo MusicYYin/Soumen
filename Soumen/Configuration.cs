@@ -111,6 +111,8 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool IChingTargetRadiusEnabled { get; set; } = false;
 
+    public bool IChingNoActionMove { get; set; } = false;
+
     public float IChingTargetRadius { get; set; } = 2f;
 
     public bool IChingRecastReduction { get; set; } = false;

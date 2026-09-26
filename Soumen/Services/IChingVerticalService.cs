@@ -31,6 +31,7 @@ internal sealed unsafe class IChingVerticalService : IDisposable
         Plugin.Framework.Update -= Update;
         combat?.Dispose();
         normal?.Dispose();
+        RestoreOffset();
     }
 
     private void Update(IFramework framework)
@@ -44,7 +45,7 @@ internal sealed unsafe class IChingVerticalService : IDisposable
         {
             if (normal?.IsEnabled == true) normal.Disable();
             if (combat?.IsEnabled == true) combat.Disable();
-            appliedOffset = 0f;
+            RestoreOffset();
             return;
         }
 
@@ -91,6 +92,18 @@ internal sealed unsafe class IChingVerticalService : IDisposable
         if (data != 0 && configuration.IChingVerticalMovement)
             ((float*)data)[3] += configuration.IChingVerticalOffset;
         return normal!.Original(context, data, length);
+    }
+
+    private void RestoreOffset()
+    {
+        if (appliedOffset == 0f) return;
+        var current = Plugin.ObjectTable.LocalPlayer;
+        if (current != null && current.Address == lastPlayer)
+        {
+            var position = current.Position;
+            ((GameObject*)current.Address)->SetPosition(position.X, position.Y - appliedOffset, position.Z);
+        }
+        appliedOffset = 0f;
     }
 
     private nint SendCombat(nuint context, nint data, uint length)

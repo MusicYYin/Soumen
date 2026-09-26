@@ -17,14 +17,19 @@ internal sealed class IChingCombatService : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate float GetActorRadiusDelegate(nuint actor, byte kind);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate ulong NoActionMoveDelegate(ulong actor, byte moveId, ulong target, float facing, nint timeline);
+
     private readonly Configuration configuration;
     private readonly DiagnosticLogger diagnostics;
     private Hook<NoBackswingDelegate>? noBackswing;
     private Hook<GetActionRangeDelegate>? actionRange;
     private Hook<GetActorRadiusDelegate>? actorRadius;
+    private Hook<NoActionMoveDelegate>? noActionMove;
     private bool backswingFailed;
     private bool rangeFailed;
     private bool radiusFailed;
+    private bool noActionMoveFailed;
 
     public IChingCombatService(Configuration configuration, DiagnosticLogger diagnostics)
     {
@@ -37,6 +42,7 @@ internal sealed class IChingCombatService : IDisposable
     {
         Plugin.Framework.Update -= OnFrameworkUpdate;
         actorRadius?.Dispose();
+        noActionMove?.Dispose();
         actionRange?.Dispose();
         noBackswing?.Dispose();
     }
@@ -112,6 +118,29 @@ internal sealed class IChingCombatService : IDisposable
                 ReportFailure("目标圈大小", exception);
             }
         }
+
+        if (!configuration.IChingNoActionMove)
+        {
+            if (noActionMove?.IsEnabled == true) noActionMove.Disable();
+        }
+        else if (!noActionMoveFailed && (noActionMove != null || !OriginalLoaded("NoActionMoveHook")))
+        {
+            try
+            {
+                if (noActionMove == null)
+                {
+                    var address = IChingHookAddresses.Resolve("_NoActionMoveHook", diagnostics);
+                    if (address == 0) noActionMoveFailed = true;
+                    else noActionMove = Plugin.GameInteropProvider.HookFromAddress<NoActionMoveDelegate>(address, PreventActionMovement);
+                }
+                if (noActionMove?.IsEnabled == false) noActionMove.Enable();
+            }
+            catch (Exception exception)
+            {
+                noActionMoveFailed = true;
+                ReportFailure("突进无位移", exception);
+            }
+        }
     }
 
     private static bool OriginalLoaded(string typeName)
@@ -135,6 +164,15 @@ internal sealed class IChingCombatService : IDisposable
         return configuration.IChingTargetRadiusEnabled
             ? MathF.Max(original, configuration.IChingTargetRadius)
             : original;
+    }
+
+    private ulong PreventActionMovement(ulong actor, byte moveId, ulong target, float facing, nint timeline)
+    {
+        // The second argument selects an ActionTimelineMove row. Zero means no action movement;
+        // the original game routine applies the displacement for nonzero movement types.
+        if (configuration.IChingNoActionMove && moveId != 0)
+            return 0;
+        return noActionMove!.Original(actor, moveId, target, facing, timeline);
     }
 
     private void ReportFailure(string feature, Exception exception)
