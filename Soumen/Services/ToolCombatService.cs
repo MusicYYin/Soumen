@@ -158,8 +158,8 @@ internal sealed class ToolCombatService : IDisposable
     private float GetRadius(nuint actor, byte kind)
     {
         var original = actorRadius!.Original(actor, kind);
-        return configuration.ToolTargetRadiusEnabled
-            ? MathF.Max(original, configuration.ToolTargetRadius)
+        return configuration.ToolTargetRadiusEnabled && float.IsFinite(original) && original >= 0f
+            ? original + configuration.ToolTargetRadius
             : original;
     }
 

@@ -725,8 +725,8 @@ public sealed class MainWindow : Window
         {
             if (DrawToolToggle("移速", nameof(configuration.ToolSpeedEnabled), configuration.ToolSpeedEnabled,
                     value => configuration.ToolSpeedEnabled = value, favoritesOnly))
-                DrawToolSlider("ToolSpeed", "移速倍率", configuration.ToolSpeedMultiplier, 1f, 5f, "×%.1f",
-                    configuration.ToolSpeedEnabled, value => configuration.ToolSpeedMultiplier = MathF.Round(value, 1));
+                DrawToolSlider("ToolSpeed", "移速倍率", configuration.ToolSpeedMultiplier, 1f, 5f, "×%.2f",
+                    configuration.ToolSpeedEnabled, value => configuration.ToolSpeedMultiplier = MathF.Round(value, 2));
             DrawToolToggle("最大加速度", nameof(configuration.ToolMaxAcceleration), configuration.ToolMaxAcceleration,
                 value => configuration.ToolMaxAcceleration = value, favoritesOnly);
             DrawToolToggle("强制移动", nameof(configuration.ToolForceMovement), configuration.ToolForceMovement,
@@ -767,11 +767,11 @@ public sealed class MainWindow : Window
         {
             if (DrawToolToggle("技能距离", nameof(configuration.ToolActionRangeEnabled), configuration.ToolActionRangeEnabled,
                     value => configuration.ToolActionRangeEnabled = value, favoritesOnly))
-                DrawToolSlider("ToolRange", "技能距离增加量", configuration.ToolActionRangeBonus, 0f, 2f, "+%.1f y",
+                DrawToolSlider("ToolRange", "技能距离增加量", configuration.ToolActionRangeBonus, 0f, 3f, "+%.1f y",
                     configuration.ToolActionRangeEnabled, value => configuration.ToolActionRangeBonus = value);
             if (DrawToolToggle("目标圈大小", nameof(configuration.ToolTargetRadiusEnabled), configuration.ToolTargetRadiusEnabled,
                     value => configuration.ToolTargetRadiusEnabled = value, favoritesOnly))
-                DrawToolSlider("ToolRadius", "目标圈最小半径", configuration.ToolTargetRadius, 0f, 5f, "%.1f y",
+                DrawToolSlider("ToolRadius", "目标圈半径增加量", configuration.ToolTargetRadius, 0f, 5f, "+%.1f y",
                     configuration.ToolTargetRadiusEnabled, value => configuration.ToolTargetRadius = value);
             DrawToolToggle("后摇可移动", nameof(configuration.NoBackswingMovement), configuration.NoBackswingMovement,
                 value => configuration.NoBackswingMovement = value, favoritesOnly);
@@ -883,7 +883,6 @@ public sealed class MainWindow : Window
                 ImGui.TextColored(Muted, $"游戏版本：{repository.Version}");
         }
         catch { /* Some game data sources do not expose a base repository version. */ }
-        ImGui.TextColored(Muted, "检查当前客户端的 Hook 入口，与功能开关无关。");
         DrawToolStatusGroup("移动", [
             ("移速", nameof(configuration.ToolSpeedEnabled)),
             ("最大加速度", nameof(configuration.ToolMaxAcceleration)),
@@ -909,8 +908,6 @@ public sealed class MainWindow : Window
             ("取消钓鱼动画", nameof(configuration.CancelFishingAnimation)),
             ("战场透视", nameof(configuration.FrontlineRadarEnabled)),
         ]);
-        ImGui.Spacing();
-        ImGui.TextWrapped("可用表示地址或签名与当前客户端匹配，不代表功能已开启或效果已触发。战场透视无需原生 Hook。");
     }
 
     private void DrawToolStatusGroup(string title, (string Label, string Id)[] features)
