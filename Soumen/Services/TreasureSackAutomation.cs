@@ -12,7 +12,7 @@ public sealed class TreasureSackAutomation : IDisposable
     internal const uint GoldSackDataId = 0x1EBE47;
     internal const uint SilverSackDataId = 0x1EBE48;
     private const float CollectionRange = 3f;
-    private const float WalkThroughRange = 1.4f;
+    private const float WalkThroughRange = 0.35f;
     private const uint VaultOneironTerritoryId = 1279;
     private const int MaxSacksPerRoute = 40;
 

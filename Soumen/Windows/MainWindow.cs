@@ -23,6 +23,7 @@ public sealed class MainWindow : Window
     private readonly HuntAutomation huntAutomation;
     private readonly ISharedImmediateTexture treasureIcon;
     private readonly ISharedImmediateTexture huntIcon;
+    private readonly ISharedImmediateTexture toolsIcon;
     private readonly ISharedImmediateTexture aboutIcon;
     private MainSection selectedSection = MainSection.Treasure;
     private Vector2 expandedSize = new(800f, 500f);
@@ -34,6 +35,10 @@ public sealed class MainWindow : Window
     private bool presetRenameOpen;
     private string includePresetId = string.Empty;
     private bool confirmStatisticsReset;
+    private Vector3 lastSpeedPosition;
+    private DateTime lastSpeedSampleUtc = DateTime.MinValue;
+    private uint lastSpeedTerritory;
+    private float currentSpeed;
 
     private ThemePalette Theme => GetTheme(configuration.UiTheme);
     private Vector4 Accent => Theme.Accent;
@@ -62,6 +67,8 @@ public sealed class MainWindow : Window
             typeof(MainWindow).Assembly, "Soumen.Assets.treasure-chest.jpg");
         huntIcon = Plugin.TextureProvider.GetFromManifestResource(
             typeof(MainWindow).Assembly, "Soumen.Assets.hunt.jpg");
+        toolsIcon = Plugin.TextureProvider.GetFromManifestResource(
+            typeof(MainWindow).Assembly, "Soumen.Assets.tools.jpg");
         aboutIcon = Plugin.TextureProvider.GetFromManifestResource(
             typeof(MainWindow).Assembly, "Soumen.Assets.about-question.jpg");
 
@@ -104,6 +111,8 @@ public sealed class MainWindow : Window
             ImGui.Spacing();
             DrawSidebarItem(MainSection.Hunt, huntIcon, "狩猎", scale);
             ImGui.Spacing();
+            DrawSidebarItem(MainSection.Tools, toolsIcon, "工具", scale);
+            ImGui.Spacing();
             DrawSidebarItem(MainSection.About, aboutIcon, "关于", scale);
         }
         ImGui.EndChild();
@@ -119,6 +128,10 @@ public sealed class MainWindow : Window
             else if (selectedSection == MainSection.Hunt)
             {
                 DrawHunt();
+            }
+            else if (selectedSection == MainSection.Tools)
+            {
+                DrawTools();
             }
             else if (ImGui.BeginTabBar("##SoumenTabs"))
             {
@@ -638,8 +651,7 @@ public sealed class MainWindow : Window
             }
             DrawCheckbox("宝物库内非战斗时自动跟随队长", nameof(configuration.DungeonAutoFollow),
                 configuration.DungeonAutoFollow, value => configuration.DungeonAutoFollow = value);
-            DrawCheckbox("优先使用 BMR 连续跟随（需安装 BossMod Reborn）", nameof(configuration.DungeonUseBossModFollow),
-                configuration.DungeonUseBossModFollow, value => configuration.DungeonUseBossModFollow = value);
+            ImGui.TextColored(Muted, "需要已加载并启用 BossMod Reborn AI；未加载时不会跟随。");
             DrawCheckbox("宝物库结束且无待掷点物品时自动离开", nameof(configuration.AutoLeaveTreasureDungeon), configuration.AutoLeaveTreasureDungeon,
                 value => configuration.AutoLeaveTreasureDungeon = value);
             DrawCheckbox("自动收集金袋和银袋", nameof(configuration.AutoCollectTreasureSacks), configuration.AutoCollectTreasureSacks,
@@ -673,52 +685,83 @@ public sealed class MainWindow : Window
             }
         }
 
-        ImGui.Spacing();
-        if (ImGui.CollapsingHeader("开发者模式"))
-        {
-            DrawCheckbox("识别所有聊天坐标", nameof(configuration.RecognizeAllChatCoordinates), configuration.RecognizeAllChatCoordinates,
-                value => configuration.RecognizeAllChatCoordinates = value);
-            DrawCheckbox("诊断模式", nameof(configuration.DiagnosticMode), configuration.DiagnosticMode,
-                value =>
-                {
-                    configuration.DiagnosticMode = value;
-                    if (value)
-                    {
-                        diagnostics.Write("诊断", "诊断模式已开启，后续内容将追加写入此文件。");
-                    }
-                });
-            ImGui.TextColored(Muted, $"日志目录：{diagnostics.DirectoryPath}");
-            ImGui.TextColored(Muted, "文件名：diagnostic.log（关闭诊断模式时不会写入）");
+    }
 
-            ImGui.Separator();
-            ImGui.TextUnformatted("功能测试");
-            ImGui.TextColored(Muted, "测试使用上方选定的地图；测试结束后不会继续执行车头流程。");
-            ImGui.BeginDisabled(leaderAutomation.IsDeveloperTestRunning);
-            if (ImGui.Button("测试解读地图"))
-            {
-                leaderAutomation.TestDecipher();
-            }
-            ImGui.EndDisabled();
-            if (leaderAutomation.IsDeveloperTestRunning)
-            {
-                ImGui.SameLine();
-                if (ImGui.Button("取消测试"))
-                {
-                    leaderAutomation.CancelDeveloperTest();
-                }
-            }
-            ImGui.TextWrapped(leaderAutomation.DeveloperTestResult);
-        }
+    private void DrawTools()
+    {
+        ImGui.Spacing();
+        DrawSectionTitle("工具");
+        ImGui.TextColored(Muted, "I-Ching 功能将在逐项验证后加入这里。");
     }
 
     private void DrawAbout()
     {
         ImGui.Spacing();
-        DrawSectionTitle("Soumen 0.5.2.0");
-        ImGui.TextWrapped("自动化工具：寻宝与狩猎。");
+        DrawSectionTitle($"Soumen {typeof(MainWindow).Assembly.GetName().Version?.ToString(4) ?? "开发版"}");
+        ImGui.TextWrapped("自动化工具：寻宝、狩猎与工具。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
         ImGui.TextColored(Muted, "命令：/soumen · on · off · pause · resume · stop");
+        ImGui.Spacing();
+        var player = Plugin.ObjectTable.LocalPlayer;
+        var territory = Plugin.ClientState.TerritoryType;
+        UpdateSpeed(player?.Position, territory);
+        ImGui.TextUnformatted($"当前地图编号：{territory}");
+        ImGui.TextUnformatted(player == null ? "自身移动速度：未进入游戏" : $"自身移动速度：{currentSpeed:F2} y/s");
+
+        ImGui.Spacing();
+        if (ImGui.CollapsingHeader("开发者模式"))
+        {
+            DrawCheckbox("诊断模式", nameof(configuration.DiagnosticMode), configuration.DiagnosticMode,
+                value =>
+                {
+                    configuration.DiagnosticMode = value;
+                    if (value)
+                        diagnostics.Write("诊断", "诊断模式已开启，后续内容将追加写入此文件。");
+                });
+            ImGui.TextColored(Muted, $"日志目录：{diagnostics.DirectoryPath}");
+            ImGui.TextColored(Muted, "文件名：diagnostic.log（关闭诊断模式时不会写入）");
+            ImGui.Separator();
+            ImGui.TextColored(Muted, "解读地图测试使用寻宝设置中选定的地图。");
+            ImGui.BeginDisabled(leaderAutomation.IsDeveloperTestRunning);
+            if (ImGui.Button("测试解读地图"))
+                leaderAutomation.TestDecipher();
+            ImGui.EndDisabled();
+            if (leaderAutomation.IsDeveloperTestRunning)
+            {
+                ImGui.SameLine();
+                if (ImGui.Button("取消测试"))
+                    leaderAutomation.CancelDeveloperTest();
+            }
+            ImGui.TextWrapped(leaderAutomation.DeveloperTestResult);
+        }
+    }
+
+    private void UpdateSpeed(Vector3? position, uint territory)
+    {
+        if (position == null)
+        {
+            lastSpeedSampleUtc = DateTime.MinValue;
+            currentSpeed = 0f;
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        if (lastSpeedSampleUtc == DateTime.MinValue || lastSpeedTerritory != territory)
+        {
+            lastSpeedPosition = position.Value;
+            lastSpeedSampleUtc = now;
+            lastSpeedTerritory = territory;
+            currentSpeed = 0f;
+            return;
+        }
+
+        var elapsed = (float)(now - lastSpeedSampleUtc).TotalSeconds;
+        if (elapsed < 0.35f) return;
+        var measured = Vector3.Distance(position.Value, lastSpeedPosition) / elapsed;
+        currentSpeed = measured > 35f ? 0f : measured;
+        lastSpeedPosition = position.Value;
+        lastSpeedSampleUtc = now;
     }
 
     private void DrawHunt()
@@ -1493,6 +1536,7 @@ public sealed class MainWindow : Window
     {
         Treasure,
         Hunt,
+        Tools,
         About,
     }
 }

@@ -68,11 +68,8 @@ public sealed class MapFlagAutomation : IDisposable
     private bool teleportSawCasting;
     private bool teleportSawLoading;
     private bool partyTeleportSawLoading;
-    private bool ownsDungeonFollow;
     private bool dungeonFollowByBossMod;
     private nint dungeonFollowLeaderAddress;
-    private Vector3 dungeonFollowDestination;
-    private DateTime lastDungeonFollowUtc = DateTime.MinValue;
     private int huntTargetInstance;
     private DateTime lastInstanceRequestUtc = DateTime.MinValue;
     private DateTime lastInstanceTeleportUtc = DateTime.MinValue;
@@ -92,7 +89,7 @@ public sealed class MapFlagAutomation : IDisposable
         treasureSpots = new TreasureSpotResolver(configuration, diagnostics);
         teleporter = new TeleportService(diagnostics);
         lifestream = new LifestreamIpc(diagnostics);
-        externalPlugins = new ExternalPluginCoordinator(configuration);
+        externalPlugins = new ExternalPluginCoordinator(configuration, diagnostics);
 
         Plugin.ChatGui.ChatMessage += OnChatMessage;
         Plugin.Framework.Update += OnFrameworkUpdate;
@@ -438,8 +435,7 @@ public sealed class MapFlagAutomation : IDisposable
     private void OnChatMessage(IHandleableChatMessage message)
     {
         if (!configuration.Enabled || configuration.HuntEnabled
-            || (!configuration.RecognizeAllChatCoordinates
-                && message.LogKind is not (XivChatType.Party or XivChatType.CrossParty)))
+            || message.LogKind is not (XivChatType.Party or XivChatType.CrossParty))
         {
             return;
         }
@@ -550,7 +546,7 @@ public sealed class MapFlagAutomation : IDisposable
                 Stop("已进入宝物库，改为跟随队长");
             }
 
-            ProcessDungeonFollow(now);
+            ProcessDungeonFollow();
             return;
         }
 
@@ -636,7 +632,7 @@ public sealed class MapFlagAutomation : IDisposable
         }
     }
 
-    private unsafe void ProcessDungeonFollow(DateTime now)
+    private unsafe void ProcessDungeonFollow()
     {
         if (!configuration.DungeonAutoFollow || paused || IsLoadingOrOccupied() || Plugin.Condition[ConditionFlag.InCombat])
         {
@@ -649,6 +645,8 @@ public sealed class MapFlagAutomation : IDisposable
         var player = Plugin.ObjectTable.LocalPlayer;
         if (group == null || player == null || group->PartyLeaderIndex >= group->MemberCount)
         {
+            diagnostics.WriteThrottled("bmr-no-party-leader", "BMR跟随",
+                "尚未取得小队队长信息。", TimeSpan.FromSeconds(10));
             StopDungeonFollow();
             return;
         }
@@ -658,16 +656,16 @@ public sealed class MapFlagAutomation : IDisposable
             && ((GameObject*)obj.Address)->EntityId == leaderId);
         if (leader == null || leader.Address == player.Address)
         {
+            diagnostics.WriteThrottled("bmr-no-visible-leader", "BMR跟随",
+                $"队长当前不可见或队长是本人；entityId={leaderId}。", TimeSpan.FromSeconds(10));
             StopDungeonFollow();
             return;
         }
 
         var gap = Vector3.Distance(player.Position, leader.Position);
         var distance = Math.Clamp(configuration.DungeonFollowDistance, 1.5f, 12f);
-        if (configuration.DungeonUseBossModFollow
-            && externalPlugins.SetDungeonFollow(leader.Name.TextValue, distance))
+        if (externalPlugins.SetDungeonFollow(leader.Name.TextValue, distance))
         {
-            if (ownsDungeonFollow) { vnavmesh.Stop(); ownsDungeonFollow = false; }
             dungeonFollowByBossMod = true;
             dungeonFollowLeaderAddress = leader.Address;
             if (Plugin.TargetManager.Target?.Address != leader.Address)
@@ -678,35 +676,7 @@ public sealed class MapFlagAutomation : IDisposable
         }
 
         if (dungeonFollowByBossMod) StopDungeonFollow();
-        if (!vnavmesh.IsInstalled || !vnavmesh.IsReady())
-        {
-            StopDungeonFollow();
-            return;
-        }
-        if (gap <= distance)
-        {
-            // Keep the active path while the leader moves: crossing the arrival
-            // radius on every update used to stop and restart navigation.
-            return;
-        }
-
-        if (gap <= distance + 1.5f
-            || now - lastDungeonFollowUtc < TimeSpan.FromSeconds(0.6)
-            || ownsDungeonFollow && vnavmesh.IsBusy()
-                && Vector3.Distance(dungeonFollowDestination, leader.Position) <= 3f)
-        {
-            return;
-        }
-
-        lastDungeonFollowUtc = now;
-        // Retarget without an explicit Path.Stop: stopping the current path first
-        // caused a visible pause after every few steps as the leader moved.
-        if (vnavmesh.MoveCloseTo(leader.Position, fly: false, distance))
-        {
-            ownsDungeonFollow = true;
-            dungeonFollowDestination = leader.Position;
-            StatusText = $"宝物库中跟随队长 · {gap:F0}y（设定 {distance:F1}y）";
-        }
+        StatusText = "BMR 跟随未就绪，请在关于页开启诊断模式查看原因";
     }
 
     private void StopDungeonFollow()
@@ -720,8 +690,6 @@ public sealed class MapFlagAutomation : IDisposable
             dungeonFollowLeaderAddress = 0;
             externalPlugins.SetNavigating(false);
         }
-        if (ownsDungeonFollow) vnavmesh.Stop();
-        ownsDungeonFollow = false;
     }
 
     private void SelectTarget(MapFlagTarget target, bool isManual)
