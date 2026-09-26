@@ -35,6 +35,7 @@ public sealed class MainWindow : Window
     private bool presetRenameOpen;
     private string includePresetId = string.Empty;
     private bool confirmStatisticsReset;
+    private string iChingProbeResult = string.Empty;
     private Vector3 lastSpeedPosition;
     private DateTime lastSpeedSampleUtc = DateTime.MinValue;
     private uint lastSpeedTerritory;
@@ -748,6 +749,14 @@ public sealed class MainWindow : Window
                     leaderAutomation.CancelDeveloperTest();
             }
             ImGui.TextWrapped(leaderAutomation.DeveloperTestResult);
+            ImGui.Separator();
+            ImGui.TextColored(Muted, "一次性采集运行中的 I-Ching Hook 入口、签名和钓鱼动画路径。");
+            ImGui.BeginDisabled(!configuration.DiagnosticMode);
+            if (ImGui.Button("采集 I-Ching Hook 快照"))
+                iChingProbeResult = IChingHookProbe.Capture(diagnostics);
+            ImGui.EndDisabled();
+            if (!string.IsNullOrEmpty(iChingProbeResult))
+                ImGui.TextWrapped(iChingProbeResult);
         }
     }
 
