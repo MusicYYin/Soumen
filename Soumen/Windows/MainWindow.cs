@@ -50,7 +50,7 @@ public sealed class MainWindow : Window
     private Vector4 Panel => Theme.Panel;
     private Vector4 Muted => Theme.Muted;
 
-    public MainWindow(
+    internal MainWindow(
         Configuration configuration,
         MapFlagAutomation automation,
         LeaderTreasureAutomation leaderAutomation,
