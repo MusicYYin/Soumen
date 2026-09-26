@@ -19,7 +19,7 @@ public sealed class Configuration : IPluginConfiguration
     [JsonIgnore]
     private IDalamudPluginInterface? pluginInterface;
 
-    public int Version { get; set; } = 17;
+    public int Version { get; set; } = 18;
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? PreviousSettings { get; set; }
@@ -209,6 +209,9 @@ public sealed class Configuration : IPluginConfiguration
         configuration.AutoDiscardItemIds ??= [];
         configuration.AutoDiscardPresets ??= [];
         configuration.NormalizeDiscardPresets();
+        // Previous theme numbers had a different meaning. Switch existing
+        // installations to rainbow once, then keep the user's later choice.
+        if (configuration.Version < 18) configuration.UiTheme = UiTheme.Rainbow;
         if (!Enum.IsDefined(typeof(UiTheme), configuration.UiTheme))
         {
             configuration.UiTheme = UiTheme.Rainbow;
@@ -235,7 +238,7 @@ public sealed class Configuration : IPluginConfiguration
         configuration.ToolCastSeconds = Math.Clamp(configuration.ToolCastSeconds, 0f, 1f);
         configuration.ToolVerticalOffset = Math.Clamp(configuration.ToolVerticalOffset, -10f, 10f);
         configuration.ToolMovingCastWindow = Math.Clamp(configuration.ToolMovingCastWindow, 0f, 1f);
-        configuration.Version = 17;
+        configuration.Version = 18;
         configuration.Save();
         return configuration;
     }
