@@ -6,8 +6,8 @@ using Dalamud.Plugin.Services;
 
 namespace Soumen.Services;
 
-/// <summary>Redirects the exact fishing animation resources observed in I-Ching 0.1.6.6.</summary>
-internal sealed unsafe class IChingFishingService : IDisposable
+/// <summary>Redirects fishing animation resources observed in the runtime snapshot.</summary>
+internal sealed unsafe class ToolFishingService : IDisposable
 {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void* GetResourceSyncDelegate(nint manager, uint* type, char* category,
@@ -126,7 +126,7 @@ internal sealed unsafe class IChingFishingService : IDisposable
     private bool failed;
     private int intercepted;
 
-    public IChingFishingService(Configuration configuration, DiagnosticLogger diagnostics)
+    public ToolFishingService(Configuration configuration, DiagnosticLogger diagnostics)
     {
         this.configuration = configuration;
         this.diagnostics = diagnostics;
@@ -151,7 +151,7 @@ internal sealed unsafe class IChingFishingService : IDisposable
             && Plugin.Condition[ConditionFlag.Gathering];
         if (!configuration.CancelFishingAnimation || failed) return;
 
-        if (IChingOriginalHookGuard.Blocks("AutoCancelFSHAnimationHook", true, diagnostics))
+        if (ExternalHookGuard.Blocks("AutoCancelFSHAnimationHook", true, diagnostics))
         {
             interceptActive = false;
             if (syncHook?.IsEnabled == true) syncHook.Disable();
@@ -163,14 +163,14 @@ internal sealed unsafe class IChingFishingService : IDisposable
         {
             try
             {
-                var syncAddress = IChingHookAddresses.Resolve("_getResourceSyncHook", diagnostics);
-                var asyncAddress = IChingHookAddresses.Resolve("_getResourceAsyncHook", diagnostics);
+                var syncAddress = ToolHookAddresses.Resolve("_getResourceSyncHook", diagnostics);
+                var asyncAddress = ToolHookAddresses.Resolve("_getResourceAsyncHook", diagnostics);
                 if (syncAddress == 0 || asyncAddress == 0) { failed = true; return; }
                 syncHook = Plugin.GameInteropProvider.HookFromAddress<GetResourceSyncDelegate>(syncAddress, GetSync);
                 asyncHook = Plugin.GameInteropProvider.HookFromAddress<GetResourceAsyncDelegate>(asyncAddress, GetAsync);
                 syncHook.Enable();
                 asyncHook.Enable();
-                diagnostics.Write("I-Ching Hook", "取消钓鱼动画资源入口已接管。");
+                diagnostics.Write("工具 Hook", "取消钓鱼动画资源入口已接管。");
             }
             catch (Exception exception)
             {
@@ -180,7 +180,7 @@ internal sealed unsafe class IChingFishingService : IDisposable
                 syncHook?.Dispose();
                 asyncHook = null;
                 syncHook = null;
-                diagnostics.Write("I-Ching Hook", $"取消钓鱼动画安装失败：{exception.GetType().Name}。");
+                diagnostics.Write("工具 Hook", $"取消钓鱼动画安装失败：{exception.GetType().Name}。");
                 Plugin.Log.Error(exception, "Fishing resource hooks failed");
             }
         }
@@ -192,7 +192,7 @@ internal sealed unsafe class IChingFishingService : IDisposable
 
         var count = Interlocked.Exchange(ref intercepted, 0);
         if (count > 0)
-            diagnostics.WriteThrottled("iching-fishing", "取消钓鱼动画", $"已改写 {count} 个钓鱼动画资源请求。", TimeSpan.FromSeconds(10));
+            diagnostics.WriteThrottled("soumen-tools-fishing", "取消钓鱼动画", $"已改写 {count} 个钓鱼动画资源请求。", TimeSpan.FromSeconds(10));
     }
 
     private byte* SelectPath(byte* path)

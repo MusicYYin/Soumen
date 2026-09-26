@@ -3,8 +3,8 @@ using System.Runtime.InteropServices;
 
 namespace Soumen.Services;
 
-/// <summary>Entrypoints observed in the 0.1.6.6 runtime snapshot. Validate the unmodified executable before any native hook is installed.</summary>
-internal static class IChingHookAddresses
+/// <summary>Entrypoints observed in a compatible game client; validate the executable before installing a native Hook.</summary>
+internal static class ToolHookAddresses
 {
     private const int CapturedModuleSize = 0x380A000;
     private static readonly Dictionary<string, (int Offset, string Bytes)> Captured = new(StringComparer.Ordinal)
@@ -37,7 +37,7 @@ internal static class IChingHookAddresses
         var module = process.MainModule;
         if (module == null || module.ModuleMemorySize != CapturedModuleSize)
         {
-            diagnostics.Write("I-Ching Hook", $"{name}: 客户端模块大小不符，未安装 Hook。");
+            diagnostics.Write("工具 Hook", $"{name}: 客户端模块大小不符，未安装 Hook。");
             return 0;
         }
 
@@ -49,14 +49,14 @@ internal static class IChingHookAddresses
             Marshal.Copy(baseAddress + entry.Offset, actual, 0, actual.Length);
             if (!actual.AsSpan().SequenceEqual(expected))
             {
-                diagnostics.Write("I-Ching Hook", $"{name}: 函数字节不符，未安装 Hook。");
+                diagnostics.Write("工具 Hook", $"{name}: 函数字节不符，未安装 Hook。");
                 return 0;
             }
             return module.BaseAddress + entry.Offset;
         }
         catch (Exception exception)
         {
-            diagnostics.Write("I-Ching Hook", $"{name}: 地址检查失败 {exception.GetType().Name}。");
+            diagnostics.Write("工具 Hook", $"{name}: 地址检查失败 {exception.GetType().Name}。");
             return 0;
         }
     }
