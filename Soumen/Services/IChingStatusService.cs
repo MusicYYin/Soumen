@@ -119,3 +119,29 @@ internal sealed unsafe class IChingStatusService : IDisposable
         statusPacket!.Original(entityId, packet, replay, firstHalf);
     }
 }
+
+// The packet's inline status entries begin at byte 20. The captured source has
+// 240 bytes allocated for entries, so only the first 20 twelve-byte records are read.
+[StructLayout(LayoutKind.Explicit, Size = 260)]
+internal unsafe struct StatusEffectList
+{
+    [FieldOffset(20)] public fixed byte EntryData[240];
+
+    public Span<StatusEffectListEntry> Entries
+    {
+        get
+        {
+            fixed (byte* data = EntryData)
+                return new Span<StatusEffectListEntry>(data, 20);
+        }
+    }
+}
+
+[StructLayout(LayoutKind.Explicit, Pack = 1, Size = 12)]
+internal struct StatusEffectListEntry
+{
+    [FieldOffset(0)] public ushort StatusID;
+    [FieldOffset(2)] public ushort StackCount;
+    [FieldOffset(4)] public float RemainingTime;
+    [FieldOffset(8)] public uint SourceID;
+}
