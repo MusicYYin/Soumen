@@ -18,11 +18,6 @@ public sealed class MainWindow : Window
     private static readonly Vector4 PauseButtonHovered = new(0.67f, 0.24f, 0.32f, 1f);
     private static readonly Vector4 StopNavigationButton = new(0.23f, 0.33f, 0.48f, 1f);
     private static readonly Vector4 StopNavigationButtonHovered = new(0.30f, 0.42f, 0.59f, 1f);
-    private static readonly UiTheme[] ThemeOrder =
-    [
-        UiTheme.Rainbow, UiTheme.Dark, UiTheme.Light, UiTheme.Twilight,
-        UiTheme.Ocean, UiTheme.Forest, UiTheme.Rose, UiTheme.Amber,
-    ];
     private static readonly Vector4[] RainbowColors =
     [
         new(0.96f, 0.39f, 0.48f, 1f), new(0.99f, 0.69f, 0.36f, 1f),
@@ -1168,7 +1163,7 @@ public sealed class MainWindow : Window
             ImGui.SetNextItemWidth(260f * ImGuiHelpers.GlobalScale);
             if (ImGui.BeginCombo("主题颜色##SoumenUiTheme", GetThemeName(configuration.UiTheme)))
             {
-                foreach (var theme in ThemeOrder)
+                foreach (var theme in Enum.GetValues<UiTheme>())
                 {
                     var selected = configuration.UiTheme == theme;
                     ImGui.PushStyleColor(ImGuiCol.Text, GetTheme(theme).Accent);
