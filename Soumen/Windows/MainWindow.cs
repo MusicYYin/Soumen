@@ -705,6 +705,18 @@ public sealed class MainWindow : Window
                 configuration.IChingIgnoreCharm, value => configuration.IChingIgnoreCharm = value);
             DrawCheckbox("状态屏蔽（滑冰）", nameof(configuration.IChingStatusBlock),
                 configuration.IChingStatusBlock, value => configuration.IChingStatusBlock = value);
+            DrawCheckbox("移动读条", nameof(configuration.IChingMovingCast),
+                configuration.IChingMovingCast, value => configuration.IChingMovingCast = value);
+            if (configuration.IChingMovingCast)
+            {
+                var window = configuration.IChingMovingCastWindow;
+                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
+                if (ImGui.SliderFloat("移动读条窗口", ref window, 0f, 1f, "%.2f s"))
+                {
+                    configuration.IChingMovingCastWindow = window;
+                    configuration.Save();
+                }
+            }
         }
         if (ImGui.CollapsingHeader("战斗相关", ImGuiTreeNodeFlags.DefaultOpen))
         {
@@ -720,8 +732,44 @@ public sealed class MainWindow : Window
                     configuration.Save();
                 }
             }
+            DrawCheckbox("目标圈大小", nameof(configuration.IChingTargetRadiusEnabled),
+                configuration.IChingTargetRadiusEnabled, value => configuration.IChingTargetRadiusEnabled = value);
+            if (configuration.IChingTargetRadiusEnabled)
+            {
+                var radius = configuration.IChingTargetRadius;
+                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
+                if (ImGui.SliderFloat("目标圈最小半径", ref radius, 0f, 5f, "%.1f y"))
+                {
+                    configuration.IChingTargetRadius = radius;
+                    configuration.Save();
+                }
+            }
             DrawCheckbox("后摇可移动", nameof(configuration.NoBackswingMovement),
                 configuration.NoBackswingMovement, value => configuration.NoBackswingMovement = value);
+            DrawCheckbox("复唱缩减", nameof(configuration.IChingRecastReduction),
+                configuration.IChingRecastReduction, value => configuration.IChingRecastReduction = value);
+            if (configuration.IChingRecastReduction)
+            {
+                var recast = configuration.IChingRecastSeconds;
+                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
+                if (ImGui.SliderFloat("复唱缩减时间", ref recast, 0f, 1f, "%.2f s"))
+                {
+                    configuration.IChingRecastSeconds = recast;
+                    configuration.Save();
+                }
+            }
+            DrawCheckbox("咏唱缩减", nameof(configuration.IChingCastReduction),
+                configuration.IChingCastReduction, value => configuration.IChingCastReduction = value);
+            if (configuration.IChingCastReduction)
+            {
+                var cast = configuration.IChingCastSeconds;
+                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
+                if (ImGui.SliderFloat("咏唱缩减时间", ref cast, 0f, 1f, "%.2f s"))
+                {
+                    configuration.IChingCastSeconds = cast;
+                    configuration.Save();
+                }
+            }
         }
         if (ImGui.CollapsingHeader("功能相关", ImGuiTreeNodeFlags.DefaultOpen))
         {

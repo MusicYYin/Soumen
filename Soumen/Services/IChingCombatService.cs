@@ -14,12 +14,17 @@ internal sealed class IChingCombatService : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate float GetActionRangeDelegate(uint actionId);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate float GetActorRadiusDelegate(nuint actor, byte kind);
+
     private readonly Configuration configuration;
     private readonly DiagnosticLogger diagnostics;
     private Hook<NoBackswingDelegate>? noBackswing;
     private Hook<GetActionRangeDelegate>? actionRange;
+    private Hook<GetActorRadiusDelegate>? actorRadius;
     private bool backswingFailed;
     private bool rangeFailed;
+    private bool radiusFailed;
 
     public IChingCombatService(Configuration configuration, DiagnosticLogger diagnostics)
     {
@@ -31,6 +36,7 @@ internal sealed class IChingCombatService : IDisposable
     public void Dispose()
     {
         Plugin.Framework.Update -= OnFrameworkUpdate;
+        actorRadius?.Dispose();
         actionRange?.Dispose();
         noBackswing?.Dispose();
     }
@@ -83,6 +89,29 @@ internal sealed class IChingCombatService : IDisposable
                 ReportFailure("技能距离", exception);
             }
         }
+
+        if (!configuration.IChingTargetRadiusEnabled)
+        {
+            if (actorRadius?.IsEnabled == true) actorRadius.Disable();
+        }
+        else if (!radiusFailed && (actorRadius != null || !OriginalLoaded("ActorRadiusHook")))
+        {
+            try
+            {
+                if (actorRadius == null)
+                {
+                    var address = IChingHookAddresses.Resolve("_ActorRadiusHook", diagnostics);
+                    if (address == 0) radiusFailed = true;
+                    else actorRadius = Plugin.GameInteropProvider.HookFromAddress<GetActorRadiusDelegate>(address, GetRadius);
+                }
+                if (actorRadius?.IsEnabled == false) actorRadius.Enable();
+            }
+            catch (Exception exception)
+            {
+                radiusFailed = true;
+                ReportFailure("目标圈大小", exception);
+            }
+        }
     }
 
     private static bool OriginalLoaded(string typeName)
@@ -98,6 +127,14 @@ internal sealed class IChingCombatService : IDisposable
         if (sheet == null || !sheet.TryGetRow(actionId, out var action) || action.TargetArea)
             return original;
         return original + configuration.IChingActionRangeBonus;
+    }
+
+    private float GetRadius(nuint actor, byte kind)
+    {
+        var original = actorRadius!.Original(actor, kind);
+        return configuration.IChingTargetRadiusEnabled
+            ? MathF.Max(original, configuration.IChingTargetRadius)
+            : original;
     }
 
     private void ReportFailure(string feature, Exception exception)

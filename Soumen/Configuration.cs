@@ -101,9 +101,25 @@ public sealed class Configuration : IPluginConfiguration
 
     public float IChingVerticalOffset { get; set; } = 0f;
 
+    public bool IChingMovingCast { get; set; } = false;
+
+    public float IChingMovingCastWindow { get; set; } = 0.3f;
+
     public bool IChingActionRangeEnabled { get; set; } = false;
 
     public float IChingActionRangeBonus { get; set; } = 2f;
+
+    public bool IChingTargetRadiusEnabled { get; set; } = false;
+
+    public float IChingTargetRadius { get; set; } = 2f;
+
+    public bool IChingRecastReduction { get; set; } = false;
+
+    public float IChingRecastSeconds { get; set; } = 0.3f;
+
+    public bool IChingCastReduction { get; set; } = false;
+
+    public float IChingCastSeconds { get; set; } = 0.3f;
 
     public bool TeleportWhenStuck { get; set; } = true;
 
@@ -203,7 +219,11 @@ public sealed class Configuration : IPluginConfiguration
         configuration.FrontlineRadarRange = Math.Clamp(configuration.FrontlineRadarRange, 20f, 200f);
         configuration.IChingSpeedBonus = Math.Clamp(configuration.IChingSpeedBonus, 0f, 2f);
         configuration.IChingActionRangeBonus = Math.Clamp(configuration.IChingActionRangeBonus, 0f, 2f);
+        configuration.IChingTargetRadius = Math.Clamp(configuration.IChingTargetRadius, 0f, 5f);
+        configuration.IChingRecastSeconds = Math.Clamp(configuration.IChingRecastSeconds, 0f, 1f);
+        configuration.IChingCastSeconds = Math.Clamp(configuration.IChingCastSeconds, 0f, 1f);
         configuration.IChingVerticalOffset = Math.Clamp(configuration.IChingVerticalOffset, -10f, 10f);
+        configuration.IChingMovingCastWindow = Math.Clamp(configuration.IChingMovingCastWindow, 0f, 1f);
         configuration.Version = 16;
         configuration.Save();
         return configuration;
