@@ -65,9 +65,8 @@ public sealed class FrontlineRadarService : IDisposable
             if (configuration.FrontlineRadarJobIcons)
             {
                 var jobId = player.ClassJob.RowId;
-                var sheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
-                if (sheet != null && sheet.TryGetRow(jobId, out var job))
-                    label = DrawIcon(drawList, label, job.Icon, scale);
+                if (jobId != 0)
+                    label = DrawIcon(drawList, label, 62100u + jobId, scale);
             }
             if (configuration.FrontlineRadarBattleHighIcons)
             {
