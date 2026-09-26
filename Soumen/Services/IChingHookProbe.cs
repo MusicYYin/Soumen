@@ -68,7 +68,7 @@ public static class IChingHookProbe
                         var relative = baseAddress != 0 && address >= baseAddress && address - baseAddress < moduleSize
                             ? $"exe+0x{(long)(address - baseAddress):X}" : "非客户端模块";
                         var bytes = relative == "非客户端模块" ? "省略" : ReadValidatedBytes(address, baseAddress, moduleSize);
-                        diagnostics.Write("I-Ching", $"{name}.{field.Name}: {relative}; 启用={enabled}; {delegateType.Name}({parameters})->{invoke?.ReturnType.Name ?? "?"}; 字节={bytes}");
+                        diagnostics.Write("I-Ching", $"{name}.{field.Name}: {relative}; 启用={enabled}; {delegateType.Name}({parameters})->{invoke?.ReturnType.Name ?? "?"}; 原始字节={bytes}");
                     }
                 }
 
@@ -123,7 +123,11 @@ public static class IChingHookProbe
         try
         {
             var bytes = new byte[length];
-            Marshal.Copy(address, bytes, 0, length);
+            // Dalamud normally scans a copy of the original module. Live hook targets contain jump patches.
+            var source = Plugin.SigScanner.IsCopy
+                ? Plugin.SigScanner.SearchBase + (address - baseAddress)
+                : address;
+            Marshal.Copy(source, bytes, 0, length);
             return Convert.ToHexString(bytes);
         }
         catch (Exception e) { return $"读取失败:{e.GetType().Name}"; }
