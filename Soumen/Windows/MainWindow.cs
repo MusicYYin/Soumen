@@ -21,7 +21,7 @@ public sealed class MainWindow : Window
     private readonly StatisticsService statisticsService;
     private readonly DiagnosticLogger diagnostics;
     private readonly HuntAutomation huntAutomation;
-    private readonly Func<string, bool> isToolActive;
+    private readonly Func<string, ToolEntryStatus> checkToolEntry;
     private readonly ISharedImmediateTexture treasureIcon;
     private readonly ISharedImmediateTexture huntIcon;
     private readonly ISharedImmediateTexture toolsIcon;
@@ -50,7 +50,7 @@ public sealed class MainWindow : Window
     private Vector4 Panel => Theme.Panel;
     private Vector4 Muted => Theme.Muted;
 
-    public MainWindow(
+    internal MainWindow(
         Configuration configuration,
         MapFlagAutomation automation,
         LeaderTreasureAutomation leaderAutomation,
@@ -58,7 +58,7 @@ public sealed class MainWindow : Window
         StatisticsService statisticsService,
         DiagnosticLogger diagnostics,
         HuntAutomation huntAutomation,
-        Func<string, bool> isToolActive)
+        Func<string, ToolEntryStatus> checkToolEntry)
         : base("Soumen##SoumenMain")
     {
         this.configuration = configuration;
@@ -68,7 +68,7 @@ public sealed class MainWindow : Window
         this.statisticsService = statisticsService;
         this.diagnostics = diagnostics;
         this.huntAutomation = huntAutomation;
-        this.isToolActive = isToolActive;
+        this.checkToolEntry = checkToolEntry;
         treasureIcon = Plugin.TextureProvider.GetFromManifestResource(
             typeof(MainWindow).Assembly, "Soumen.Assets.treasure-chest.jpg");
         huntIcon = Plugin.TextureProvider.GetFromManifestResource(
@@ -697,7 +697,7 @@ public sealed class MainWindow : Window
             DrawToolCombat(false);
             ImGui.EndTabItem();
         }
-        if (ImGui.BeginTabItem("便利"))
+        if (ImGui.BeginTabItem("其他"))
         {
             DrawToolConvenience(false);
             ImGui.EndTabItem();
@@ -784,8 +784,16 @@ public sealed class MainWindow : Window
         {
             if (DrawToolToggle("复唱缩减", nameof(configuration.ToolRecastReduction), configuration.ToolRecastReduction,
                     value => configuration.ToolRecastReduction = value, favoritesOnly))
+            {
                 DrawToolSlider("ToolRecast", "复唱缩减时间", configuration.ToolRecastSeconds, 0f, 1f, "%.2f s",
                     configuration.ToolRecastReduction, value => configuration.ToolRecastSeconds = value);
+                ImGui.BeginDisabled(!configuration.ToolRecastReduction);
+                ImGui.Indent(22f * ImGuiHelpers.GlobalScale);
+                DrawCheckbox("快速结印（忍者）", nameof(configuration.ToolRapidMudra), configuration.ToolRapidMudra,
+                    value => configuration.ToolRapidMudra = value);
+                ImGui.Unindent(22f * ImGuiHelpers.GlobalScale);
+                ImGui.EndDisabled();
+            }
             if (DrawToolToggle("咏唱缩减", nameof(configuration.ToolCastReduction), configuration.ToolCastReduction,
                     value => configuration.ToolCastReduction = value, favoritesOnly))
                 DrawToolSlider("ToolCast", "咏唱缩减时间", configuration.ToolCastSeconds, 0f, 1f, "%.2f s",
@@ -868,37 +876,44 @@ public sealed class MainWindow : Window
     private void DrawToolStatus()
     {
         ImGui.Spacing();
-        ImGui.TextColored(Muted, $"Soumen {typeof(MainWindow).Assembly.GetName().Version?.ToString(4) ?? "未知版本"}");
-        ImGui.TextColored(Muted, "显示功能开关和当前 Hook 接管状态。");
+        try
+        {
+            if (Plugin.DataManager.GameData.Repositories.TryGetValue("ffxiv", out var repository)
+                && !string.IsNullOrWhiteSpace(repository.Version))
+                ImGui.TextColored(Muted, $"游戏版本：{repository.Version}");
+        }
+        catch { /* Some game data sources do not expose a base repository version. */ }
+        ImGui.TextColored(Muted, "检查当前客户端的 Hook 入口，与功能开关无关。");
         DrawToolStatusGroup("移动", [
-            ("移速", nameof(configuration.ToolSpeedEnabled), configuration.ToolSpeedEnabled),
-            ("最大加速度", nameof(configuration.ToolMaxAcceleration), configuration.ToolMaxAcceleration),
-            ("强制移动", nameof(configuration.ToolForceMovement), configuration.ToolForceMovement),
-            ("飞天遁地", nameof(configuration.ToolVerticalMovement), configuration.ToolVerticalMovement),
-            ("移动读条", nameof(configuration.ToolMovingCast), configuration.ToolMovingCast),
-            ("防击退", nameof(configuration.ToolAntiKnockback), configuration.ToolAntiKnockback),
-            ("掉落无伤", nameof(configuration.ToolNoFallDamage), configuration.ToolNoFallDamage),
-            ("无掉落", nameof(configuration.ToolNoDrop), configuration.ToolNoDrop),
-            ("无视魅惑恐惧", nameof(configuration.ToolIgnoreCharm), configuration.ToolIgnoreCharm),
-            ("状态屏蔽（滑冰）", nameof(configuration.ToolStatusBlock), configuration.ToolStatusBlock),
+            ("移速", nameof(configuration.ToolSpeedEnabled)),
+            ("最大加速度", nameof(configuration.ToolMaxAcceleration)),
+            ("强制移动", nameof(configuration.ToolForceMovement)),
+            ("飞天遁地", nameof(configuration.ToolVerticalMovement)),
+            ("移动读条", nameof(configuration.ToolMovingCast)),
+            ("防击退", nameof(configuration.ToolAntiKnockback)),
+            ("掉落无伤", nameof(configuration.ToolNoFallDamage)),
+            ("无掉落", nameof(configuration.ToolNoDrop)),
+            ("无视魅惑恐惧", nameof(configuration.ToolIgnoreCharm)),
+            ("状态屏蔽（滑冰）", nameof(configuration.ToolStatusBlock)),
         ]);
         DrawToolStatusGroup("战斗", [
-            ("技能距离", nameof(configuration.ToolActionRangeEnabled), configuration.ToolActionRangeEnabled),
-            ("目标圈大小", nameof(configuration.ToolTargetRadiusEnabled), configuration.ToolTargetRadiusEnabled),
-            ("后摇可移动", nameof(configuration.NoBackswingMovement), configuration.NoBackswingMovement),
-            ("突进无位移", nameof(configuration.ToolNoActionMove), configuration.ToolNoActionMove),
-            ("复唱缩减", nameof(configuration.ToolRecastReduction), configuration.ToolRecastReduction),
-            ("咏唱缩减", nameof(configuration.ToolCastReduction), configuration.ToolCastReduction),
+            ("技能距离", nameof(configuration.ToolActionRangeEnabled)),
+            ("目标圈大小", nameof(configuration.ToolTargetRadiusEnabled)),
+            ("后摇可移动", nameof(configuration.NoBackswingMovement)),
+            ("突进无位移", nameof(configuration.ToolNoActionMove)),
+            ("复唱缩减", nameof(configuration.ToolRecastReduction)),
+            ("快速结印（忍者）", nameof(configuration.ToolRapidMudra)),
+            ("咏唱缩减", nameof(configuration.ToolCastReduction)),
         ]);
-        DrawToolStatusGroup("便利与战场", [
-            ("取消钓鱼动画", nameof(configuration.CancelFishingAnimation), configuration.CancelFishingAnimation),
-            ("战场透视", nameof(configuration.FrontlineRadarEnabled), configuration.FrontlineRadarEnabled),
+        DrawToolStatusGroup("其他与战场", [
+            ("取消钓鱼动画", nameof(configuration.CancelFishingAnimation)),
+            ("战场透视", nameof(configuration.FrontlineRadarEnabled)),
         ]);
         ImGui.Spacing();
-        ImGui.TextWrapped("钓鱼动画只在钓鱼时触发；战场透视只在 PvP 地图绘制。");
+        ImGui.TextWrapped("可用表示地址或签名与当前客户端匹配，不代表功能已开启或效果已触发。战场透视无需原生 Hook。");
     }
 
-    private void DrawToolStatusGroup(string title, (string Label, string Id, bool Enabled)[] features)
+    private void DrawToolStatusGroup(string title, (string Label, string Id)[] features)
     {
         ImGui.Spacing();
         DrawSectionTitle(title);
@@ -906,17 +921,27 @@ public sealed class MainWindow : Window
             return;
         ImGui.TableSetupColumn("功能", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("状态", ImGuiTableColumnFlags.WidthFixed, 104f * ImGuiHelpers.GlobalScale);
-        foreach (var (label, id, enabled) in features)
+        foreach (var (label, id) in features)
         {
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(label);
             ImGui.TableNextColumn();
-            var active = enabled && isToolActive(id);
-            var state = !enabled ? "已关闭" : active ? "已接管" : "未接管";
-            if (id == nameof(configuration.FrontlineRadarEnabled) && enabled)
-                state = active ? "可绘制" : "等待 PvP";
-            ImGui.TextColored(!enabled ? Muted : active ? Success : Warning, state);
+            var status = checkToolEntry(id);
+            var state = status switch
+            {
+                ToolEntryStatus.Available => "可用",
+                ToolEntryStatus.Occupied => "入口被占用",
+                ToolEntryStatus.NoHook => "无需 Hook",
+                _ => "不可用",
+            };
+            ImGui.TextColored(status switch
+            {
+                ToolEntryStatus.Available => Success,
+                ToolEntryStatus.Occupied => Warning,
+                ToolEntryStatus.NoHook => Muted,
+                _ => Danger,
+            }, state);
         }
         ImGui.EndTable();
     }
@@ -925,7 +950,6 @@ public sealed class MainWindow : Window
     {
         ImGui.Spacing();
         DrawSectionTitle($"Soumen {typeof(MainWindow).Assembly.GetName().Version?.ToString(4) ?? "开发版"}");
-        ImGui.TextWrapped("自动化工具：寻宝、狩猎与工具。");
         ImGui.Spacing();
         ImGui.TextColored(Muted, "维护者：MusicYYin");
         ImGui.TextColored(Muted, "命令：/soumen（打开面板）");

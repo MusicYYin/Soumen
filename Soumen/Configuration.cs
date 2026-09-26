@@ -122,6 +122,8 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool ToolRecastReduction { get; set; } = false;
 
+    public bool ToolRapidMudra { get; set; } = false;
+
     public float ToolRecastSeconds { get; set; } = 0.3f;
 
     public bool ToolCastReduction { get; set; } = false;

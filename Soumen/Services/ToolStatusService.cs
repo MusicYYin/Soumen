@@ -34,8 +34,6 @@ internal sealed unsafe class ToolStatusService : IDisposable
     private Hook<StatusUpdateDelegate>? statusUpdate;
     private Hook<StatusPacketDelegate>? statusPacket;
 
-    public bool IgnoreCharmActive => forcedAction?.IsEnabled == true;
-    public bool StatusBlockActive => statusUpdate?.IsEnabled == true && statusPacket?.IsEnabled == true;
     private bool forcedFailed;
     private bool updateFailed;
     private bool packetFailed;

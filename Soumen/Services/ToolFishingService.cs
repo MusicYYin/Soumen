@@ -123,7 +123,6 @@ internal sealed unsafe class ToolFishingService : IDisposable
     private Hook<GetResourceSyncDelegate>? syncHook;
     private Hook<GetResourceAsyncDelegate>? asyncHook;
 
-    public bool IsActive => syncHook?.IsEnabled == true && asyncHook?.IsEnabled == true;
     private volatile bool interceptActive;
     private bool failed;
     private int intercepted;
