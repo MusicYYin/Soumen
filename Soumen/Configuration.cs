@@ -19,7 +19,7 @@ public sealed class Configuration : IPluginConfiguration
     [JsonIgnore]
     private IDalamudPluginInterface? pluginInterface;
 
-    public int Version { get; set; } = 15;
+    public int Version { get; set; } = 16;
 
     public AutomationTask ActiveTask { get; set; } = AutomationTask.None;
 
@@ -70,6 +70,58 @@ public sealed class Configuration : IPluginConfiguration
     public float FrontlineRadarRange { get; set; } = 100f;
 
     public bool FrontlineRadarLines { get; set; } = false;
+
+    public bool FrontlineRadarJobIcons { get; set; } = true;
+
+    public bool FrontlineRadarBattleHighIcons { get; set; } = true;
+
+    public bool NoBackswingMovement { get; set; } = false;
+
+    public bool CancelFishingAnimation { get; set; } = false;
+
+    public bool IChingSpeedEnabled { get; set; } = false;
+
+    public float IChingSpeedBonus { get; set; } = 0.2f;
+
+    public bool IChingMaxAcceleration { get; set; } = false;
+
+    public bool IChingNoFallDamage { get; set; } = false;
+
+    public bool IChingForceMovement { get; set; } = false;
+
+    public bool IChingAntiKnockback { get; set; } = false;
+
+    public bool IChingNoDrop { get; set; } = false;
+
+    public bool IChingIgnoreCharm { get; set; } = false;
+
+    public bool IChingStatusBlock { get; set; } = false;
+
+    public bool IChingVerticalMovement { get; set; } = false;
+
+    public float IChingVerticalOffset { get; set; } = 0f;
+
+    public bool IChingMovingCast { get; set; } = false;
+
+    public float IChingMovingCastWindow { get; set; } = 0.3f;
+
+    public bool IChingActionRangeEnabled { get; set; } = false;
+
+    public float IChingActionRangeBonus { get; set; } = 2f;
+
+    public bool IChingTargetRadiusEnabled { get; set; } = false;
+
+    public bool IChingNoActionMove { get; set; } = false;
+
+    public float IChingTargetRadius { get; set; } = 2f;
+
+    public bool IChingRecastReduction { get; set; } = false;
+
+    public float IChingRecastSeconds { get; set; } = 0.3f;
+
+    public bool IChingCastReduction { get; set; } = false;
+
+    public float IChingCastSeconds { get; set; } = 0.3f;
 
     public bool TeleportWhenStuck { get; set; } = true;
 
@@ -167,7 +219,14 @@ public sealed class Configuration : IPluginConfiguration
         configuration.TreasureSpotCorrectionRange = Math.Clamp(configuration.TreasureSpotCorrectionRange, 0f, 150f);
         configuration.DungeonFollowDistance = Math.Clamp(configuration.DungeonFollowDistance, 1.5f, 12f);
         configuration.FrontlineRadarRange = Math.Clamp(configuration.FrontlineRadarRange, 20f, 200f);
-        configuration.Version = 15;
+        configuration.IChingSpeedBonus = Math.Clamp(configuration.IChingSpeedBonus, 0f, 2f);
+        configuration.IChingActionRangeBonus = Math.Clamp(configuration.IChingActionRangeBonus, 0f, 2f);
+        configuration.IChingTargetRadius = Math.Clamp(configuration.IChingTargetRadius, 0f, 5f);
+        configuration.IChingRecastSeconds = Math.Clamp(configuration.IChingRecastSeconds, 0f, 1f);
+        configuration.IChingCastSeconds = Math.Clamp(configuration.IChingCastSeconds, 0f, 1f);
+        configuration.IChingVerticalOffset = Math.Clamp(configuration.IChingVerticalOffset, -10f, 10f);
+        configuration.IChingMovingCastWindow = Math.Clamp(configuration.IChingMovingCastWindow, 0f, 1f);
+        configuration.Version = 16;
         configuration.Save();
         return configuration;
     }

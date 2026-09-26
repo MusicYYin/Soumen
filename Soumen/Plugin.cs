@@ -25,6 +25,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IDutyState DutyState { get; private set; } = null!;
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
     [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
+    [PluginService] internal static IGameInteropProvider GameInteropProvider { get; private set; } = null!;
     [PluginService] internal static IMarketBoard MarketBoard { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
@@ -41,6 +42,13 @@ public sealed class Plugin : IDalamudPlugin
     private readonly StatisticsService statisticsService;
     private readonly HuntAutomation huntAutomation;
     private readonly FrontlineRadarService frontlineRadarService;
+    private readonly IChingCombatService iChingCombatService;
+    private readonly IChingFishingService iChingFishingService;
+    private readonly IChingMovementService iChingMovementService;
+    private readonly IChingStatusService iChingStatusService;
+    private readonly IChingVerticalService iChingVerticalService;
+    private readonly IChingMovingCastService iChingMovingCastService;
+    private readonly IChingCastRecastService iChingCastRecastService;
     private readonly MainWindow mainWindow;
 
     public Plugin()
@@ -58,6 +66,13 @@ public sealed class Plugin : IDalamudPlugin
         statisticsService = new StatisticsService(configuration);
         huntAutomation = new HuntAutomation(configuration, automation, diagnostics);
         frontlineRadarService = new FrontlineRadarService(configuration, diagnostics);
+        iChingCombatService = new IChingCombatService(configuration, diagnostics);
+        iChingFishingService = new IChingFishingService(configuration, diagnostics);
+        iChingMovementService = new IChingMovementService(configuration, diagnostics);
+        iChingStatusService = new IChingStatusService(configuration, diagnostics);
+        iChingVerticalService = new IChingVerticalService(configuration, diagnostics);
+        iChingMovingCastService = new IChingMovingCastService(configuration, diagnostics);
+        iChingCastRecastService = new IChingCastRecastService(configuration, diagnostics);
         mainWindow = new MainWindow(configuration, automation, leaderTreasureAutomation, autoDiscardService,
             statisticsService, diagnostics, huntAutomation);
         windowSystem.AddWindow(mainWindow);
@@ -81,6 +96,13 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(CommandName);
         windowSystem.RemoveAllWindows();
         frontlineRadarService.Dispose();
+        iChingCombatService.Dispose();
+        iChingFishingService.Dispose();
+        iChingMovementService.Dispose();
+        iChingStatusService.Dispose();
+        iChingVerticalService.Dispose();
+        iChingMovingCastService.Dispose();
+        iChingCastRecastService.Dispose();
         huntAutomation.Dispose();
         statisticsService.Dispose();
         autoDiscardService.Dispose();
