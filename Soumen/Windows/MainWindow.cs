@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Textures;
@@ -38,6 +39,7 @@ public sealed class MainWindow : Window
     private bool confirmStatisticsReset;
     private string hookSnapshotResult = string.Empty;
     private string hookSnapshotAssembly = string.Empty;
+    private string logFolderStatus = string.Empty;
     private IReadOnlyList<string>? hookSnapshotCandidates;
     private Vector3 lastSpeedPosition;
     private DateTime lastSpeedSampleUtc = DateTime.MinValue;
@@ -215,7 +217,7 @@ public sealed class MainWindow : Window
         ImGui.GetWindowDrawList().AddText(position + new Vector2(3f * scale, 5f * scale),
             ImGui.ColorConvertFloat4ToU32(Accent), "Soumen");
         var enabled = configuration.Enabled;
-        var label = !enabled ? "已关闭" : automation.IsPaused ? "已暂停" : "运行中";
+        var label = !enabled ? "未开启" : automation.IsPaused ? "已暂停" : "运行中";
         var color = !enabled ? Muted : automation.IsPaused ? Warning : Success;
         var stateText = "●  " + label;
         var width = ImGui.CalcTextSize(stateText).X;
@@ -377,11 +379,15 @@ public sealed class MainWindow : Window
     {
         var scale = ImGuiHelpers.GlobalScale;
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 9f * scale);
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, automation.ActiveTarget == null ? Panel : AccentSoft);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, !configuration.Enabled || automation.ActiveTarget == null ? Panel : AccentSoft);
         ImGui.BeginChild("##SoumenStatusCard", new Vector2(0f, 132f * scale), false);
 
         ImGui.SetCursorPos(new Vector2(16f, 13f) * scale);
-        if (configuration.OperatingMode == OperatingMode.Leader)
+        if (!configuration.Enabled)
+        {
+            ImGui.TextColored(Muted, "●  未开启");
+        }
+        else if (configuration.OperatingMode == OperatingMode.Leader)
         {
             ImGui.TextColored(GetLeaderStateColor(leaderAutomation.State),
                 $"●  {GetLeaderStateName(leaderAutomation.State)}");
@@ -391,11 +397,10 @@ public sealed class MainWindow : Window
             ImGui.TextColored(GetStateColor(automation.State), $"●  {GetStateName(automation.State)}");
         }
         ImGui.SetCursorPosX(16f * scale);
-        ImGui.TextWrapped(configuration.OperatingMode == OperatingMode.Leader
-            ? leaderAutomation.StatusText
-            : automation.StatusText);
+        ImGui.TextWrapped(!configuration.Enabled ? "等待开启寻宝"
+            : configuration.OperatingMode == OperatingMode.Leader ? leaderAutomation.StatusText : automation.StatusText);
 
-        if (configuration.OperatingMode == OperatingMode.Leader)
+        if (configuration.Enabled && configuration.OperatingMode == OperatingMode.Leader)
         {
             ImGui.Spacing();
             ImGui.SetCursorPosX(16f * scale);
@@ -405,7 +410,7 @@ public sealed class MainWindow : Window
         }
 
         var target = automation.ActiveTarget;
-        if (target != null)
+        if (configuration.Enabled && target != null)
         {
             ImGui.Spacing();
             ImGui.SetCursorPosX(16f * scale);
@@ -671,8 +676,11 @@ public sealed class MainWindow : Window
         if (!ImGui.BeginTabBar("##SoumenToolTabs")) return;
 
         ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(8f, 9f) * ImGuiHelpers.GlobalScale);
-        if (ImGui.BeginTabItem("收藏"))
+        if (ImGui.BeginTabItem("概览"))
         {
+            DrawActiveToolFeatures();
+            ImGui.Spacing();
+            DrawSectionTitle("收藏");
             if (configuration.ToolFavorites.Count == 0)
             {
                 ImGui.Spacing();
@@ -716,9 +724,60 @@ public sealed class MainWindow : Window
         ImGui.EndTabBar();
     }
 
+    private void DrawActiveToolFeatures()
+    {
+        ImGui.Spacing();
+        DrawSectionTitle("已启用功能");
+        var features = new (string Name, string Id, bool Enabled, Action Disable)[]
+        {
+            ("移速", nameof(configuration.ToolSpeedEnabled), configuration.ToolSpeedEnabled, () => configuration.ToolSpeedEnabled = false),
+            ("最大加速度", nameof(configuration.ToolMaxAcceleration), configuration.ToolMaxAcceleration, () => configuration.ToolMaxAcceleration = false),
+            ("强制移动", nameof(configuration.ToolForceMovement), configuration.ToolForceMovement, () => configuration.ToolForceMovement = false),
+            ("飞天遁地", nameof(configuration.ToolVerticalMovement), configuration.ToolVerticalMovement, () => configuration.ToolVerticalMovement = false),
+            ("移动读条", nameof(configuration.ToolMovingCast), configuration.ToolMovingCast, () => configuration.ToolMovingCast = false),
+            ("防击退", nameof(configuration.ToolAntiKnockback), configuration.ToolAntiKnockback, () => configuration.ToolAntiKnockback = false),
+            ("掉落无伤", nameof(configuration.ToolNoFallDamage), configuration.ToolNoFallDamage, () => configuration.ToolNoFallDamage = false),
+            ("无掉落", nameof(configuration.ToolNoDrop), configuration.ToolNoDrop, () => configuration.ToolNoDrop = false),
+            ("无视魅惑恐惧", nameof(configuration.ToolIgnoreCharm), configuration.ToolIgnoreCharm, () => configuration.ToolIgnoreCharm = false),
+            ("状态屏蔽（滑冰）", nameof(configuration.ToolStatusBlock), configuration.ToolStatusBlock, () => configuration.ToolStatusBlock = false),
+            ("技能距离", nameof(configuration.ToolActionRangeEnabled), configuration.ToolActionRangeEnabled, () => configuration.ToolActionRangeEnabled = false),
+            ("目标圈大小", nameof(configuration.ToolTargetRadiusEnabled), configuration.ToolTargetRadiusEnabled, () => configuration.ToolTargetRadiusEnabled = false),
+            ("后摇可移动", nameof(configuration.NoBackswingMovement), configuration.NoBackswingMovement, () => configuration.NoBackswingMovement = false),
+            ("突进无位移", nameof(configuration.ToolNoActionMove), configuration.ToolNoActionMove, () => configuration.ToolNoActionMove = false),
+            ("复唱缩减", nameof(configuration.ToolRecastReduction), configuration.ToolRecastReduction, () => configuration.ToolRecastReduction = false),
+            ("快速结印（忍者）", nameof(configuration.ToolRapidMudra), configuration.ToolRecastReduction && configuration.ToolRapidMudra, () => configuration.ToolRapidMudra = false),
+            ("咏唱缩减", nameof(configuration.ToolCastReduction), configuration.ToolCastReduction, () => configuration.ToolCastReduction = false),
+            ("取消钓鱼动画", nameof(configuration.CancelFishingAnimation), configuration.CancelFishingAnimation, () => configuration.CancelFishingAnimation = false),
+            ("战场透视", nameof(configuration.FrontlineRadarEnabled), configuration.FrontlineRadarEnabled, () => configuration.FrontlineRadarEnabled = false),
+        };
+        if (!features.Any(feature => feature.Enabled))
+        {
+            ImGui.TextColored(Muted, "暂无已启用功能。");
+            return;
+        }
+
+        if (!ImGui.BeginTable("##ActiveToolFeatures", 2, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+            return;
+        ImGui.TableSetupColumn("功能", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn("操作", ImGuiTableColumnFlags.WidthFixed, 72f * ImGuiHelpers.GlobalScale);
+        foreach (var feature in features)
+        {
+            if (!feature.Enabled) continue;
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(feature.Name);
+            ImGui.TableNextColumn();
+            if (!ImGui.SmallButton($"关闭##ActiveTool{feature.Id}")) continue;
+            feature.Disable();
+            configuration.Save();
+            diagnostics.Write("工具开关", $"{feature.Name}：关闭。");
+        }
+        ImGui.EndTable();
+    }
+
     private void DrawToolMovement(bool favoritesOnly)
     {
-        if (BeginToolGroup("速度与位移", favoritesOnly,
+        if (BeginToolGroup("位移", favoritesOnly,
                 nameof(configuration.ToolSpeedEnabled), nameof(configuration.ToolMaxAcceleration),
                 nameof(configuration.ToolForceMovement), nameof(configuration.ToolVerticalMovement),
                 nameof(configuration.ToolMovingCast)))
@@ -733,15 +792,18 @@ public sealed class MainWindow : Window
                 value => configuration.ToolForceMovement = value, favoritesOnly);
             if (DrawToolToggle("飞天遁地", nameof(configuration.ToolVerticalMovement), configuration.ToolVerticalMovement,
                     value => configuration.ToolVerticalMovement = value, favoritesOnly))
+            {
                 DrawToolSlider("ToolHeight", "高度偏移", configuration.ToolVerticalOffset, -10f, 10f, "%+.1f y",
                     configuration.ToolVerticalMovement, value => configuration.ToolVerticalOffset = value);
+                DrawToolHeightShortcuts();
+            }
             if (DrawToolToggle("移动读条", nameof(configuration.ToolMovingCast), configuration.ToolMovingCast,
                     value => configuration.ToolMovingCast = value, favoritesOnly))
                 DrawToolSlider("ToolCastWindow", "移动读条窗口", configuration.ToolMovingCastWindow, 0f, 1f, "%.2f s",
                     configuration.ToolMovingCast, value => configuration.ToolMovingCastWindow = value);
         }
 
-        if (BeginToolGroup("防护与状态", favoritesOnly,
+        if (BeginToolGroup("状态", favoritesOnly,
                 nameof(configuration.ToolAntiKnockback), nameof(configuration.ToolNoFallDamage),
                 nameof(configuration.ToolNoDrop), nameof(configuration.ToolIgnoreCharm),
                 nameof(configuration.ToolStatusBlock)))
@@ -761,7 +823,7 @@ public sealed class MainWindow : Window
 
     private void DrawToolCombat(bool favoritesOnly)
     {
-        if (BeginToolGroup("距离与动作", favoritesOnly,
+        if (BeginToolGroup("距离", favoritesOnly,
                 nameof(configuration.ToolActionRangeEnabled), nameof(configuration.ToolTargetRadiusEnabled),
                 nameof(configuration.NoBackswingMovement), nameof(configuration.ToolNoActionMove)))
         {
@@ -779,7 +841,7 @@ public sealed class MainWindow : Window
                 value => configuration.ToolNoActionMove = value, favoritesOnly);
         }
 
-        if (BeginToolGroup("技能计时", favoritesOnly,
+        if (BeginToolGroup("技能", favoritesOnly,
                 nameof(configuration.ToolRecastReduction), nameof(configuration.ToolCastReduction)))
         {
             if (DrawToolToggle("复唱缩减", nameof(configuration.ToolRecastReduction), configuration.ToolRecastReduction,
@@ -871,6 +933,25 @@ public sealed class MainWindow : Window
         ImGui.TextColored(Muted, label);
         ImGui.EndDisabled();
         ImGui.Unindent(22f * scale);
+    }
+
+    private void DrawToolHeightShortcuts()
+    {
+        ImGui.Indent(22f * ImGuiHelpers.GlobalScale);
+        ImGui.BeginDisabled(!configuration.ToolVerticalMovement);
+        if (ImGui.SmallButton("设为 -7##ToolHeightMinus7"))
+        {
+            configuration.ToolVerticalOffset = -7f;
+            configuration.Save();
+        }
+        ImGui.SameLine();
+        if (ImGui.SmallButton("归零##ToolHeightReset"))
+        {
+            configuration.ToolVerticalOffset = 0f;
+            configuration.Save();
+        }
+        ImGui.EndDisabled();
+        ImGui.Unindent(22f * ImGuiHelpers.GlobalScale);
     }
 
     private void DrawToolStatus()
@@ -996,6 +1077,21 @@ public sealed class MainWindow : Window
                 });
             ImGui.TextColored(Muted, $"日志目录：{diagnostics.DirectoryPath}");
             ImGui.TextColored(Muted, "文件名：diagnostic.log（关闭诊断模式时不会写入）");
+            if (ImGui.Button("打开日志文件夹"))
+            {
+                try
+                {
+                    Directory.CreateDirectory(diagnostics.DirectoryPath);
+                    Process.Start(new ProcessStartInfo(diagnostics.DirectoryPath) { UseShellExecute = true });
+                    logFolderStatus = string.Empty;
+                }
+                catch (Exception exception)
+                {
+                    logFolderStatus = "打开日志文件夹失败，请检查上面的目录路径。";
+                    Plugin.Log.Warning(exception, "Could not open the diagnostic log folder.");
+                }
+            }
+            if (!string.IsNullOrEmpty(logFolderStatus)) ImGui.TextColored(Warning, logFolderStatus);
             ImGui.Separator();
             ImGui.TextColored(Muted, "解读地图测试使用寻宝设置中选定的地图。");
             ImGui.BeginDisabled(leaderAutomation.IsDeveloperTestRunning);
@@ -1716,7 +1812,7 @@ public sealed class MainWindow : Window
     private static string GetLeaderStateName(LeaderAutomationState state)
         => state switch
         {
-            LeaderAutomationState.Inactive => "车头未运行",
+            LeaderAutomationState.Inactive => "未开启",
             LeaderAutomationState.LookingForMap => "检查藏宝图",
             LeaderAutomationState.RestockingTravel => "前往市场板",
             LeaderAutomationState.RestockingMarket => "购买藏宝图",
@@ -1739,7 +1835,7 @@ public sealed class MainWindow : Window
     private static string GetStateName(AutomationState state)
         => state switch
         {
-            AutomationState.Disabled => "已关闭",
+            AutomationState.Disabled => "未开启",
             AutomationState.Idle => "待命",
             AutomationState.Paused => "已暂停",
             AutomationState.WaitingForPlayer => "准备中",
@@ -1760,6 +1856,7 @@ public sealed class MainWindow : Window
             UiTheme.Ocean => "默认蓝",
             UiTheme.Dark => "深色",
             UiTheme.Light => "浅色",
+            UiTheme.Twilight => "暮蓝紫",
             _ => "默认蓝",
         };
 
@@ -1790,6 +1887,18 @@ public sealed class MainWindow : Window
                 new Vector4(0.15f, 0.12f, 0.09f, 1f),
                 new Vector4(0.87f, 0.82f, 0.72f, 0.45f),
                 new Vector4(0.81f, 0.74f, 0.62f, 0.48f)),
+            UiTheme.Twilight => new(
+                new Vector4(0.65f, 0.58f, 0.97f, 1f),
+                new Vector4(0.22f, 0.21f, 0.38f, 1f),
+                new Vector4(0.075f, 0.080f, 0.145f, 0.98f),
+                new Vector4(0.13f, 0.14f, 0.23f, 1f),
+                new Vector4(0.30f, 0.27f, 0.53f, 1f),
+                new Vector4(0.38f, 0.34f, 0.66f, 1f),
+                new Vector4(0.67f, 0.68f, 0.79f, 1f),
+                new Vector4(0.095f, 0.10f, 0.17f, 0.98f),
+                new Vector4(0.94f, 0.94f, 0.99f, 1f),
+                new Vector4(0.15f, 0.15f, 0.24f, 0.42f),
+                new Vector4(0.19f, 0.19f, 0.30f, 0.48f)),
             _ => new(
                 new Vector4(0.31f, 0.67f, 0.94f, 1f),
                 new Vector4(0.10f, 0.20f, 0.29f, 0.96f),
