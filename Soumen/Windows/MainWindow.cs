@@ -14,6 +14,10 @@ public sealed class MainWindow : Window
     private static readonly Vector4 Success = new(0.34f, 0.84f, 0.56f, 1f);
     private static readonly Vector4 Warning = new(1f, 0.72f, 0.30f, 1f);
     private static readonly Vector4 Danger = new(0.95f, 0.36f, 0.36f, 1f);
+    private static readonly Vector4 PauseButton = new(0.53f, 0.18f, 0.25f, 1f);
+    private static readonly Vector4 PauseButtonHovered = new(0.67f, 0.24f, 0.32f, 1f);
+    private static readonly Vector4 StopNavigationButton = new(0.23f, 0.33f, 0.48f, 1f);
+    private static readonly Vector4 StopNavigationButtonHovered = new(0.30f, 0.42f, 0.59f, 1f);
 
     private readonly Configuration configuration;
     private readonly MapFlagAutomation automation;
@@ -234,6 +238,22 @@ public sealed class MainWindow : Window
             IsOpen = false;
         }
         ImGui.Separator();
+        if (configuration.UiTheme == UiTheme.Rainbow)
+        {
+            var start = ImGui.GetCursorScreenPos();
+            var stripeWidth = ImGui.GetContentRegionAvail().X;
+            Vector4[] colors = [
+                new(0.96f, 0.39f, 0.48f, 1f), new(0.99f, 0.69f, 0.36f, 1f),
+                new(0.96f, 0.83f, 0.43f, 1f), new(0.40f, 0.83f, 0.62f, 1f),
+                new(0.42f, 0.71f, 0.96f, 1f), new(0.75f, 0.53f, 0.97f, 1f),
+            ];
+            for (var i = 0; i < colors.Length; i++)
+                ImGui.GetWindowDrawList().AddRectFilled(
+                    start + new Vector2(stripeWidth * i / colors.Length, 0f),
+                    start + new Vector2(stripeWidth * (i + 1) / colors.Length, 3f * scale),
+                    ImGui.ColorConvertFloat4ToU32(colors[i]));
+            ImGui.Dummy(new Vector2(0f, 4f * scale));
+        }
     }
 
     private void ToggleCollapsed()
@@ -321,6 +341,29 @@ public sealed class MainWindow : Window
         ImGui.PopStyleColor(3);
     }
 
+    private bool DrawPauseButton(float scale)
+    {
+        var paused = automation.IsPaused;
+        ImGui.PushStyleColor(ImGuiCol.Button, paused ? new Vector4(0.12f, 0.42f, 0.30f, 1f) : PauseButton);
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, paused ? new Vector4(0.18f, 0.52f, 0.39f, 1f) : PauseButtonHovered);
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, paused ? new Vector4(0.09f, 0.34f, 0.25f, 1f) : new Vector4(0.43f, 0.13f, 0.20f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 1f, 1f, 1f));
+        var clicked = ImGui.Button(paused ? "继续" : "暂停", new Vector2(104f, 38f) * scale);
+        ImGui.PopStyleColor(4);
+        return clicked;
+    }
+
+    private static bool DrawStopNavigationButton(float scale)
+    {
+        ImGui.PushStyleColor(ImGuiCol.Button, StopNavigationButton);
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, StopNavigationButtonHovered);
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.18f, 0.27f, 0.41f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 1f, 1f, 1f));
+        var clicked = ImGui.Button("停止导航", new Vector2(112f, 38f) * scale);
+        ImGui.PopStyleColor(4);
+        return clicked;
+    }
+
     private void DrawControlBar()
     {
         var scale = ImGuiHelpers.GlobalScale;
@@ -339,15 +382,13 @@ public sealed class MainWindow : Window
 
         ImGui.SameLine();
         ImGui.BeginDisabled(!enabled);
-        ImGui.PushStyleColor(ImGuiCol.Button, automation.IsPaused ? new Vector4(0.12f, 0.42f, 0.30f, 1f) : new Vector4(0.38f, 0.30f, 0.10f, 1f));
-        if (ImGui.Button(automation.IsPaused ? "继续" : "暂停", new Vector2(104f, 38f) * scale))
+        if (DrawPauseButton(scale))
         {
             automation.SetPaused(!automation.IsPaused);
         }
-        ImGui.PopStyleColor();
 
         ImGui.SameLine();
-        if (ImGui.Button("停止导航", new Vector2(112f, 38f) * scale))
+        if (DrawStopNavigationButton(scale))
         {
             automation.Stop();
         }
@@ -678,9 +719,10 @@ public sealed class MainWindow : Window
         ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(8f, 9f) * ImGuiHelpers.GlobalScale);
         if (ImGui.BeginTabItem("概览"))
         {
+            DrawToolOverviewSummary();
             DrawActiveToolFeatures();
             ImGui.Spacing();
-            DrawSectionTitle("收藏");
+            DrawSectionTitle($"收藏  {configuration.ToolFavorites.Count} 项");
             if (configuration.ToolFavorites.Count == 0)
             {
                 ImGui.Spacing();
@@ -724,6 +766,43 @@ public sealed class MainWindow : Window
         ImGui.EndTabBar();
     }
 
+    private void DrawToolOverviewSummary()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        var active = CountActiveToolFeatures();
+        var width = Math.Max(0f, (ImGui.GetContentRegionAvail().X - 10f * scale) / 2f);
+        DrawToolOverviewStat("正在使用", active, "##ToolActiveSummary", width, AccentSoft);
+        ImGui.SameLine(0f, 10f * scale);
+        DrawToolOverviewStat("已收藏", configuration.ToolFavorites.Count, "##ToolFavoriteSummary", width, Panel);
+    }
+
+    private void DrawToolOverviewStat(string label, int count, string id, float width, Vector4 background)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 9f * scale);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, background);
+        ImGui.BeginChild(id, new Vector2(width, 66f * scale), false);
+        ImGui.SetCursorPos(new Vector2(14f, 10f) * scale);
+        ImGui.TextColored(Muted, label);
+        ImGui.SetCursorPosX(14f * scale);
+        ImGui.TextColored(Accent, $"{count} 项");
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
+        ImGui.PopStyleVar();
+    }
+
+    private int CountActiveToolFeatures()
+        => new[]
+        {
+            configuration.ToolSpeedEnabled, configuration.ToolMaxAcceleration, configuration.ToolForceMovement,
+            configuration.ToolVerticalMovement, configuration.ToolMovingCast, configuration.ToolAntiKnockback,
+            configuration.ToolNoFallDamage, configuration.ToolNoDrop, configuration.ToolIgnoreCharm,
+            configuration.ToolStatusBlock, configuration.ToolActionRangeEnabled, configuration.ToolTargetRadiusEnabled,
+            configuration.NoBackswingMovement, configuration.ToolNoActionMove, configuration.ToolRecastReduction,
+            configuration.ToolRecastReduction && configuration.ToolRapidMudra, configuration.ToolCastReduction,
+            configuration.CancelFishingAnimation, configuration.FrontlineRadarEnabled,
+        }.Count(enabled => enabled);
+
     private void DrawActiveToolFeatures()
     {
         ImGui.Spacing();
@@ -752,27 +831,48 @@ public sealed class MainWindow : Window
         };
         if (!features.Any(feature => feature.Enabled))
         {
-            ImGui.TextColored(Muted, "暂无已启用功能。");
+            ImGui.Spacing();
+            ImGui.TextColored(Muted, "暂无已启用功能，从移动、战斗、其他或战场中开启。");
             return;
         }
 
-        if (!ImGui.BeginTable("##ActiveToolFeatures", 2, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+        if (!ImGui.BeginTable("##ActiveToolFeatures", 2, ImGuiTableFlags.SizingStretchSame))
             return;
-        ImGui.TableSetupColumn("功能", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("操作", ImGuiTableColumnFlags.WidthFixed, 72f * ImGuiHelpers.GlobalScale);
-        foreach (var feature in features)
+        var index = 0;
+        foreach (var feature in features.Where(feature => feature.Enabled))
         {
-            if (!feature.Enabled) continue;
-            ImGui.TableNextRow();
+            if (index++ % 2 == 0) ImGui.TableNextRow();
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(feature.Name);
-            ImGui.TableNextColumn();
-            if (!ImGui.SmallButton($"关闭##ActiveTool{feature.Id}")) continue;
+            DrawActiveToolCard(feature);
+        }
+        ImGui.EndTable();
+    }
+
+    private void DrawActiveToolCard((string Name, string Id, bool Enabled, Action Disable) feature)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 7f * scale);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, Panel);
+        ImGui.BeginChild($"##ActiveToolCard{feature.Id}", new Vector2(0f, 42f * scale), false);
+        ImGui.SetCursorPos(new Vector2(12f, 12f) * scale);
+        ImGui.TextColored(Accent, "●");
+        ImGui.SameLine(0f, 7f * scale);
+        ImGui.TextUnformatted(feature.Name);
+        ImGui.SameLine();
+        ImGui.SetCursorPosX(Math.Max(ImGui.GetCursorPosX(), ImGui.GetWindowContentRegionMax().X - 58f * scale));
+        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.35f, 0.16f, 0.21f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, PauseButtonHovered);
+        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 1f, 1f, 1f));
+        if (ImGui.SmallButton($"关闭##ActiveTool{feature.Id}"))
+        {
             feature.Disable();
             configuration.Save();
             diagnostics.Write("工具开关", $"{feature.Name}：关闭。");
         }
-        ImGui.EndTable();
+        ImGui.PopStyleColor(3);
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
+        ImGui.PopStyleVar();
     }
 
     private void DrawToolMovement(bool favoritesOnly)
@@ -939,13 +1039,13 @@ public sealed class MainWindow : Window
     {
         ImGui.Indent(22f * ImGuiHelpers.GlobalScale);
         ImGui.BeginDisabled(!configuration.ToolVerticalMovement);
-        if (ImGui.SmallButton("设为 -7##ToolHeightMinus7"))
+        if (ImGui.SmallButton("-7##ToolHeightMinus7"))
         {
             configuration.ToolVerticalOffset = -7f;
             configuration.Save();
         }
         ImGui.SameLine();
-        if (ImGui.SmallButton("归零##ToolHeightReset"))
+        if (ImGui.SmallButton("0##ToolHeightReset"))
         {
             configuration.ToolVerticalOffset = 0f;
             configuration.Save();
@@ -1190,12 +1290,10 @@ public sealed class MainWindow : Window
         ImGui.PopStyleColor(2);
         ImGui.SameLine();
         ImGui.BeginDisabled(!active);
-        ImGui.PushStyleColor(ImGuiCol.Button, automation.IsPaused ? new Vector4(0.12f, 0.42f, 0.30f, 1f) : new Vector4(0.38f, 0.30f, 0.10f, 1f));
-        if (ImGui.Button(automation.IsPaused ? "继续" : "暂停", new Vector2(104f, 38f) * scale))
+        if (DrawPauseButton(scale))
             automation.SetPaused(!automation.IsPaused);
-        ImGui.PopStyleColor();
         ImGui.SameLine();
-        if (ImGui.Button("停止导航", new Vector2(112f, 38f) * scale))
+        if (DrawStopNavigationButton(scale))
         {
             automation.Stop("狩猎导航已停止");
         }
@@ -1853,11 +1951,15 @@ public sealed class MainWindow : Window
     private static string GetThemeName(UiTheme theme)
         => theme switch
         {
-            UiTheme.Ocean => "默认蓝",
-            UiTheme.Dark => "深色",
-            UiTheme.Light => "浅色",
-            UiTheme.Twilight => "暮蓝紫",
-            _ => "默认蓝",
+            UiTheme.Ocean => "蓝",
+            UiTheme.Dark => "灰黑",
+            UiTheme.Light => "米白",
+            UiTheme.Twilight => "蓝紫",
+            UiTheme.Forest => "绿",
+            UiTheme.Rose => "粉",
+            UiTheme.Amber => "橙",
+            UiTheme.Rainbow => "彩虹",
+            _ => "蓝",
         };
 
     private static ThemePalette GetTheme(UiTheme theme)
@@ -1899,6 +2001,54 @@ public sealed class MainWindow : Window
                 new Vector4(0.94f, 0.94f, 0.99f, 1f),
                 new Vector4(0.15f, 0.15f, 0.24f, 0.42f),
                 new Vector4(0.19f, 0.19f, 0.30f, 0.48f)),
+            UiTheme.Forest => new(
+                new Vector4(0.44f, 0.83f, 0.65f, 1f),
+                new Vector4(0.11f, 0.28f, 0.23f, 1f),
+                new Vector4(0.09f, 0.13f, 0.12f, 1f),
+                new Vector4(0.07f, 0.11f, 0.10f, 1f),
+                new Vector4(0.14f, 0.39f, 0.30f, 1f),
+                new Vector4(0.20f, 0.50f, 0.39f, 1f),
+                new Vector4(0.66f, 0.73f, 0.68f, 1f),
+                new Vector4(0.055f, 0.085f, 0.075f, 0.98f),
+                new Vector4(0.92f, 0.97f, 0.93f, 1f),
+                new Vector4(0.08f, 0.16f, 0.13f, 0.40f),
+                new Vector4(0.11f, 0.20f, 0.16f, 0.44f)),
+            UiTheme.Rose => new(
+                new Vector4(0.97f, 0.58f, 0.73f, 1f),
+                new Vector4(0.30f, 0.16f, 0.25f, 1f),
+                new Vector4(0.19f, 0.13f, 0.18f, 1f),
+                new Vector4(0.15f, 0.10f, 0.15f, 1f),
+                new Vector4(0.49f, 0.24f, 0.36f, 1f),
+                new Vector4(0.60f, 0.30f, 0.45f, 1f),
+                new Vector4(0.76f, 0.67f, 0.72f, 1f),
+                new Vector4(0.11f, 0.07f, 0.11f, 0.98f),
+                new Vector4(0.99f, 0.94f, 0.96f, 1f),
+                new Vector4(0.24f, 0.14f, 0.21f, 0.42f),
+                new Vector4(0.29f, 0.17f, 0.25f, 0.46f)),
+            UiTheme.Amber => new(
+                new Vector4(0.99f, 0.67f, 0.35f, 1f),
+                new Vector4(0.31f, 0.21f, 0.12f, 1f),
+                new Vector4(0.18f, 0.14f, 0.11f, 1f),
+                new Vector4(0.14f, 0.11f, 0.09f, 1f),
+                new Vector4(0.51f, 0.30f, 0.16f, 1f),
+                new Vector4(0.63f, 0.39f, 0.21f, 1f),
+                new Vector4(0.77f, 0.70f, 0.63f, 1f),
+                new Vector4(0.11f, 0.085f, 0.07f, 0.98f),
+                new Vector4(0.99f, 0.96f, 0.92f, 1f),
+                new Vector4(0.25f, 0.18f, 0.12f, 0.42f),
+                new Vector4(0.30f, 0.21f, 0.14f, 0.46f)),
+            UiTheme.Rainbow => new(
+                new Vector4(0.43f, 0.79f, 0.98f, 1f),
+                new Vector4(0.25f, 0.17f, 0.36f, 1f),
+                new Vector4(0.13f, 0.14f, 0.21f, 1f),
+                new Vector4(0.11f, 0.12f, 0.18f, 1f),
+                new Vector4(0.39f, 0.27f, 0.57f, 1f),
+                new Vector4(0.49f, 0.35f, 0.68f, 1f),
+                new Vector4(0.71f, 0.72f, 0.81f, 1f),
+                new Vector4(0.075f, 0.08f, 0.13f, 0.98f),
+                new Vector4(0.97f, 0.96f, 1f, 1f),
+                new Vector4(0.18f, 0.15f, 0.26f, 0.42f),
+                new Vector4(0.20f, 0.23f, 0.29f, 0.48f)),
             _ => new(
                 new Vector4(0.31f, 0.67f, 0.94f, 1f),
                 new Vector4(0.10f, 0.20f, 0.29f, 0.96f),
