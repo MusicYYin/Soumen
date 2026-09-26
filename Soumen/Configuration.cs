@@ -67,8 +67,6 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool TeleportWhenStuck { get; set; } = true;
 
-    public bool RecognizeAllChatCoordinates { get; set; } = false;
-
     public bool DiagnosticMode { get; set; } = false;
 
     public float StuckSeconds { get; set; } = 8f;
@@ -79,7 +77,6 @@ public sealed class Configuration : IPluginConfiguration
 
     public float DungeonFollowDistance { get; set; } = 3.5f;
     public bool DungeonAutoFollow { get; set; } = true;
-    public bool DungeonUseBossModFollow { get; set; } = true;
 
     public bool HuntEnabled { get; set; } = false;
     public bool HuntAutoTeleport { get; set; } = true;
