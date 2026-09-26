@@ -681,8 +681,18 @@ public sealed class MainWindow : Window
             }
             DrawCheckbox("最大加速度", nameof(configuration.IChingMaxAcceleration),
                 configuration.IChingMaxAcceleration, value => configuration.IChingMaxAcceleration = value);
+            DrawCheckbox("强制移动", nameof(configuration.IChingForceMovement),
+                configuration.IChingForceMovement, value => configuration.IChingForceMovement = value);
+            DrawCheckbox("防击退", nameof(configuration.IChingAntiKnockback),
+                configuration.IChingAntiKnockback, value => configuration.IChingAntiKnockback = value);
             DrawCheckbox("掉落无伤", nameof(configuration.IChingNoFallDamage),
                 configuration.IChingNoFallDamage, value => configuration.IChingNoFallDamage = value);
+            DrawCheckbox("无掉落", nameof(configuration.IChingNoDrop),
+                configuration.IChingNoDrop, value => configuration.IChingNoDrop = value);
+            DrawCheckbox("无视魅惑恐惧", nameof(configuration.IChingIgnoreCharm),
+                configuration.IChingIgnoreCharm, value => configuration.IChingIgnoreCharm = value);
+            DrawCheckbox("状态屏蔽（滑冰）", nameof(configuration.IChingStatusBlock),
+                configuration.IChingStatusBlock, value => configuration.IChingStatusBlock = value);
         }
         if (ImGui.CollapsingHeader("战斗相关", ImGuiTreeNodeFlags.DefaultOpen))
         {

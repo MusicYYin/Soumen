@@ -18,6 +18,15 @@ internal sealed class IChingMovementService : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint FallDamageDelegate(nuint actor, uint flags);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate nint MovePermissionDelegate(nint conditions, uint actionId, int third, int fourth);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate nint AntiKnockbackDelegate(nint actor, float rotation, float distance, float duration, byte fifth, nint sixth);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate nint FallCheckDelegate(nint actor, nint flags, nint extra);
+
     private static readonly HashSet<uint> MovementLockStatuses =
     [
         14, 67, 181, 240, 436, 484, 502, 623, 674, 709, 1073, 1107,
@@ -31,9 +40,15 @@ internal sealed class IChingMovementService : IDisposable
     private Hook<SpeedDelegate>? speedHook;
     private Hook<AccelerationDelegate>? accelerationHook;
     private Hook<FallDamageDelegate>? fallDamageHook;
+    private Hook<MovePermissionDelegate>? permissionHook;
+    private Hook<AntiKnockbackDelegate>? knockbackHook;
+    private Hook<FallCheckDelegate>? fallCheckHook;
     private bool speedFailed;
     private bool accelerationFailed;
     private bool fallDamageFailed;
+    private bool permissionFailed;
+    private bool knockbackFailed;
+    private bool fallCheckFailed;
 
     public IChingMovementService(Configuration configuration, DiagnosticLogger diagnostics)
     {
@@ -45,6 +60,9 @@ internal sealed class IChingMovementService : IDisposable
     public void Dispose()
     {
         Plugin.Framework.Update -= OnFrameworkUpdate;
+        fallCheckHook?.Dispose();
+        knockbackHook?.Dispose();
+        permissionHook?.Dispose();
         fallDamageHook?.Dispose();
         accelerationHook?.Dispose();
         speedHook?.Dispose();
@@ -97,6 +115,29 @@ internal sealed class IChingMovementService : IDisposable
             SetEnabled(fallDamageHook, configuration.IChingNoFallDamage);
         }
         catch (Exception exception) { ReportFailure("移动 Hook 开关", exception); }
+
+        Manage(ref permissionHook, ref permissionFailed, configuration.IChingForceMovement,
+            "_MovePermissionHook", new MovePermissionDelegate(AllowMovement));
+        Manage(ref knockbackHook, ref knockbackFailed, configuration.IChingAntiKnockback,
+            "_AntiKnockHook", new AntiKnockbackDelegate(IgnoreKnockback));
+        Manage(ref fallCheckHook, ref fallCheckFailed, configuration.IChingNoDrop,
+            "_FallCheckHook", new FallCheckDelegate(ClearFallFlags));
+    }
+
+    private void Manage<T>(ref Hook<T>? hook, ref bool failed, bool desired, string key, T detour) where T : Delegate
+    {
+        if (failed) return;
+        try
+        {
+            if (desired && hook == null)
+            {
+                var address = IChingHookAddresses.Resolve(key, diagnostics);
+                if (address == 0) { failed = true; return; }
+                hook = Plugin.GameInteropProvider.HookFromAddress(address, detour);
+            }
+            SetEnabled(hook, desired);
+        }
+        catch (Exception exception) { failed = true; ReportFailure(key, exception); }
     }
 
     private static void SetEnabled<T>(Hook<T>? hook, bool desired) where T : Delegate
@@ -130,6 +171,23 @@ internal sealed class IChingMovementService : IDisposable
 
     private nint IgnoreFallDamage(nuint actor, uint flags)
         => configuration.IChingNoFallDamage ? 0 : fallDamageHook!.Original(actor, flags);
+
+    private nint AllowMovement(nint conditions, uint actionId, int third, int fourth)
+    {
+        if (configuration.IChingForceMovement && actionId is 96 or 97 or 98 or 99 or 1001 or 1006 or 1007 or 1008)
+            return 1;
+        return permissionHook!.Original(conditions, actionId, third, fourth);
+    }
+
+    private nint IgnoreKnockback(nint actor, float rotation, float distance, float duration, byte fifth, nint sixth)
+        => configuration.IChingAntiKnockback ? 0 : knockbackHook!.Original(actor, rotation, distance, duration, fifth, sixth);
+
+    private nint ClearFallFlags(nint actor, nint flags, nint extra)
+    {
+        if (configuration.IChingNoDrop && (flags.ToInt64() & 0x700) != 0)
+            flags = (nint)((flags.ToInt64() & ~0x700L) | 2L);
+        return fallCheckHook!.Original(actor, flags, extra);
+    }
 
     private void ReportFailure(string feature, Exception exception)
     {

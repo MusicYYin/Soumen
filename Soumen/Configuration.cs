@@ -87,6 +87,16 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool IChingNoFallDamage { get; set; } = false;
 
+    public bool IChingForceMovement { get; set; } = false;
+
+    public bool IChingAntiKnockback { get; set; } = false;
+
+    public bool IChingNoDrop { get; set; } = false;
+
+    public bool IChingIgnoreCharm { get; set; } = false;
+
+    public bool IChingStatusBlock { get; set; } = false;
+
     public bool IChingActionRangeEnabled { get; set; } = false;
 
     public float IChingActionRangeBonus { get; set; } = 2f;
