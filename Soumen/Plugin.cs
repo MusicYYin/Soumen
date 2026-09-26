@@ -46,6 +46,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly IChingFishingService iChingFishingService;
     private readonly IChingMovementService iChingMovementService;
     private readonly IChingStatusService iChingStatusService;
+    private readonly IChingVerticalService iChingVerticalService;
     private readonly MainWindow mainWindow;
 
     public Plugin()
@@ -67,6 +68,7 @@ public sealed class Plugin : IDalamudPlugin
         iChingFishingService = new IChingFishingService(configuration, diagnostics);
         iChingMovementService = new IChingMovementService(configuration, diagnostics);
         iChingStatusService = new IChingStatusService(configuration, diagnostics);
+        iChingVerticalService = new IChingVerticalService(configuration, diagnostics);
         mainWindow = new MainWindow(configuration, automation, leaderTreasureAutomation, autoDiscardService,
             statisticsService, diagnostics, huntAutomation);
         windowSystem.AddWindow(mainWindow);
@@ -94,6 +96,7 @@ public sealed class Plugin : IDalamudPlugin
         iChingFishingService.Dispose();
         iChingMovementService.Dispose();
         iChingStatusService.Dispose();
+        iChingVerticalService.Dispose();
         huntAutomation.Dispose();
         statisticsService.Dispose();
         autoDiscardService.Dispose();

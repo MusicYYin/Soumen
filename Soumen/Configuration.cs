@@ -97,6 +97,10 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool IChingStatusBlock { get; set; } = false;
 
+    public bool IChingVerticalMovement { get; set; } = false;
+
+    public float IChingVerticalOffset { get; set; } = 0f;
+
     public bool IChingActionRangeEnabled { get; set; } = false;
 
     public float IChingActionRangeBonus { get; set; } = 2f;
@@ -199,6 +203,7 @@ public sealed class Configuration : IPluginConfiguration
         configuration.FrontlineRadarRange = Math.Clamp(configuration.FrontlineRadarRange, 20f, 200f);
         configuration.IChingSpeedBonus = Math.Clamp(configuration.IChingSpeedBonus, 0f, 2f);
         configuration.IChingActionRangeBonus = Math.Clamp(configuration.IChingActionRangeBonus, 0f, 2f);
+        configuration.IChingVerticalOffset = Math.Clamp(configuration.IChingVerticalOffset, -10f, 10f);
         configuration.Version = 16;
         configuration.Save();
         return configuration;

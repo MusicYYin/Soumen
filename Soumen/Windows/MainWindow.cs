@@ -687,6 +687,18 @@ public sealed class MainWindow : Window
                 configuration.IChingAntiKnockback, value => configuration.IChingAntiKnockback = value);
             DrawCheckbox("掉落无伤", nameof(configuration.IChingNoFallDamage),
                 configuration.IChingNoFallDamage, value => configuration.IChingNoFallDamage = value);
+            DrawCheckbox("飞天遁地", nameof(configuration.IChingVerticalMovement),
+                configuration.IChingVerticalMovement, value => configuration.IChingVerticalMovement = value);
+            if (configuration.IChingVerticalMovement)
+            {
+                var height = configuration.IChingVerticalOffset;
+                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
+                if (ImGui.SliderFloat("高度偏移", ref height, -10f, 10f, "%+.1f y"))
+                {
+                    configuration.IChingVerticalOffset = height;
+                    configuration.Save();
+                }
+            }
             DrawCheckbox("无掉落", nameof(configuration.IChingNoDrop),
                 configuration.IChingNoDrop, value => configuration.IChingNoDrop = value);
             DrawCheckbox("无视魅惑恐惧", nameof(configuration.IChingIgnoreCharm),
