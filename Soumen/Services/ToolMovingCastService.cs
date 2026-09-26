@@ -21,13 +21,27 @@ internal sealed class ToolMovingCastService : IDisposable
     private readonly Configuration configuration;
     private readonly DiagnosticLogger diagnostics;
     private Hook<SendPacketDelegate>? packetHook;
-
-    public bool IsActive => packetHook?.IsEnabled == true;
     private uint normalOpcode;
     private uint combatOpcode;
     private bool failed;
     private long suppressed;
 
+    public static bool IsEntryAvailable()
+    {
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            if (process.MainModule?.ModuleMemorySize != 0x380A000) return false;
+            var normal = Plugin.SigScanner.ScanText(NormalPositionOpcode);
+            var combat = Plugin.SigScanner.ScanText(CombatPositionOpcode);
+            return SafeMemory.Read<uint>(normal + 2, out var normalOpcode)
+                && SafeMemory.Read<uint>(combat + 81, out var combatOpcode)
+                && normalOpcode is > 0 and <= ushort.MaxValue
+                && combatOpcode is > 0 and <= ushort.MaxValue
+                && Plugin.SigScanner.ScanText(SendPacketCall) != 0;
+        }
+        catch { return false; }
+    }
     public ToolMovingCastService(Configuration configuration, DiagnosticLogger diagnostics)
     {
         this.configuration = configuration;

@@ -18,6 +18,8 @@ internal static class ExternalHookGuard
         return true;
     }
 
+    public static bool HasConflict(string typeName) => IsEnabled(typeName);
+
     private static bool IsEnabled(string typeName)
     {
         lock (CacheLock)

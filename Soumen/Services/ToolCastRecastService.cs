@@ -29,8 +29,6 @@ internal sealed unsafe class ToolCastRecastService : IDisposable
     private Hook<CastProgressDelegate>? castProgress;
     private Hook<GetRecastTimeDelegate>? recastTime;
 
-    public bool CastActive => castTime?.IsEnabled == true && castProgress?.IsEnabled == true;
-    public bool RecastActive => recastTime?.IsEnabled == true;
     private float* castProgressValue;
     private bool castFailed;
     private bool recastFailed;
@@ -106,6 +104,28 @@ internal sealed unsafe class ToolCastRecastService : IDisposable
             throw new InvalidOperationException("客户端模块与 Hook 快照不同");
     }
 
+    public static bool IsCastEntryAvailable()
+    {
+        try
+        {
+            VerifyClient();
+            return Plugin.SigScanner.ScanText(CastTimeCall) != 0
+                && Plugin.SigScanner.ScanText(CastProgressEntry) != 0
+                && Plugin.SigScanner.GetStaticAddressFromSig(CastProgressValue, 18) != 0;
+        }
+        catch { return false; }
+    }
+
+    public static bool IsRecastEntryAvailable()
+    {
+        try
+        {
+            VerifyClient();
+            return Plugin.SigScanner.ScanText(RecastEntry) != 0;
+        }
+        catch { return false; }
+    }
+
     private void Switch<T>(Hook<T>? hook, bool enabled, string feature) where T : Delegate
     {
         if (hook == null || hook.IsEnabled == enabled) return;
@@ -135,9 +155,19 @@ internal sealed unsafe class ToolCastRecastService : IDisposable
     private long ShortenRecast(int type, int actionId, char variant)
     {
         var original = recastTime!.Original(type, actionId, variant);
-        return configuration.ToolRecastReduction && type == 1 && original > 0
-            ? Math.Max(0L, original - (long)(configuration.ToolRecastSeconds * 1000f))
-            : original;
+        if (!configuration.ToolRecastReduction || type != 1 || original <= 0) return original;
+
+        // Transformed Ten/Chi/Jin are the short recasts between mudra. The base
+        // actions (2259/2261/2263) carry charges and must keep their recharge time.
+        if (configuration.ToolRapidMudra && Plugin.ObjectTable.LocalPlayer?.ClassJob.RowId == 30
+            && actionId is 18805 or 18806 or 18807)
+        {
+            diagnostics.WriteThrottled($"soumen-mudra-{actionId}", "快速结印",
+                $"连印动作={actionId}；原复唱={original}ms；调整后=0ms。", TimeSpan.FromSeconds(10));
+            return 0;
+        }
+
+        return Math.Max(0L, original - (long)(configuration.ToolRecastSeconds * 1000f));
     }
 
     private void Report(string feature, Exception exception)

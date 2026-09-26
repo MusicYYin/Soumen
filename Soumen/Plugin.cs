@@ -43,6 +43,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly StatisticsService statisticsService;
     private readonly HuntAutomation huntAutomation;
     private readonly FrontlineRadarService frontlineRadarService;
+    private readonly ToolAvailabilityService toolAvailabilityService = new();
     private readonly ToolCombatService toolCombatService;
     private readonly ToolFishingService toolFishingService;
     private readonly ToolMovementService toolMovementService;
@@ -76,7 +77,7 @@ public sealed class Plugin : IDalamudPlugin
         toolMovingCastService = new ToolMovingCastService(configuration, diagnostics);
         toolCastRecastService = new ToolCastRecastService(configuration, diagnostics);
         mainWindow = new MainWindow(configuration, automation, leaderTreasureAutomation, autoDiscardService,
-            statisticsService, diagnostics, huntAutomation, IsToolActive);
+            statisticsService, diagnostics, huntAutomation, toolAvailabilityService.Check);
         windowSystem.AddWindow(mainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -126,30 +127,6 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OpenMainUi() => mainWindow.IsOpen = true;
 
-    private bool IsToolActive(string id) => id switch
-    {
-        nameof(Configuration.ToolSpeedEnabled) => toolMovementService.SpeedActive,
-        nameof(Configuration.ToolMaxAcceleration) => toolMovementService.AccelerationActive,
-        nameof(Configuration.ToolForceMovement) => toolMovementService.ForceMovementActive,
-        nameof(Configuration.ToolAntiKnockback) => toolMovementService.AntiKnockbackActive,
-        nameof(Configuration.ToolNoFallDamage) => toolMovementService.FallDamageActive,
-        nameof(Configuration.ToolNoDrop) => toolMovementService.NoDropActive,
-        nameof(Configuration.ToolIgnoreCharm) => toolStatusService.IgnoreCharmActive,
-        nameof(Configuration.ToolStatusBlock) => toolStatusService.StatusBlockActive,
-        nameof(Configuration.ToolVerticalMovement) => toolVerticalService.IsActive,
-        nameof(Configuration.ToolMovingCast) => toolMovingCastService.IsActive,
-        nameof(Configuration.ToolActionRangeEnabled) => toolCombatService.ActionRangeActive,
-        nameof(Configuration.ToolTargetRadiusEnabled) => toolCombatService.ActorRadiusActive,
-        nameof(Configuration.NoBackswingMovement) => toolCombatService.BackswingActive,
-        nameof(Configuration.ToolNoActionMove) => toolCombatService.NoActionMoveActive,
-        nameof(Configuration.ToolRecastReduction) => toolCastRecastService.RecastActive,
-        nameof(Configuration.ToolCastReduction) => toolCastRecastService.CastActive,
-        nameof(Configuration.CancelFishingAnimation) => toolFishingService.IsActive,
-        nameof(Configuration.FrontlineRadarEnabled) => configuration.FrontlineRadarEnabled
-            && ClientState.IsPvP && ObjectTable.LocalPlayer != null,
-        _ => false,
-    };
-
     private void LogToolHealth(IFramework framework)
     {
         _ = framework;
@@ -171,6 +148,7 @@ public sealed class Plugin : IDalamudPlugin
         if (configuration.NoBackswingMovement) selected.Add("后摇可移动");
         if (configuration.ToolNoActionMove) selected.Add("突进无位移");
         if (configuration.ToolRecastReduction) selected.Add("复唱缩减");
+        if (configuration.ToolRecastReduction && configuration.ToolRapidMudra) selected.Add("快速结印");
         if (configuration.ToolCastReduction) selected.Add("咏唱缩减");
         if (configuration.CancelFishingAnimation) selected.Add("取消钓鱼动画");
         if (configuration.FrontlineRadarEnabled) selected.Add("战场透视");

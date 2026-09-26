@@ -29,6 +29,12 @@ internal static class ToolHookAddresses
     };
 
     public static nint Resolve(string name, DiagnosticLogger diagnostics)
+        => Check(name, diagnostics);
+
+    /// <summary>Read-only check of the executable snapshot, without installing or enabling a Hook.</summary>
+    public static bool IsAvailable(string name) => Check(name, null) != 0;
+
+    private static nint Check(string name, DiagnosticLogger? diagnostics)
     {
         if (!Captured.TryGetValue(name, out var entry))
             throw new ArgumentOutOfRangeException(nameof(name));
@@ -37,7 +43,7 @@ internal static class ToolHookAddresses
         var module = process.MainModule;
         if (module == null || module.ModuleMemorySize != CapturedModuleSize)
         {
-            diagnostics.Write("工具 Hook", $"{name}: 客户端模块大小不符，未安装 Hook。");
+            diagnostics?.Write("工具 Hook", $"{name}: 客户端模块大小不符，未安装 Hook。");
             return 0;
         }
 
@@ -49,14 +55,14 @@ internal static class ToolHookAddresses
             Marshal.Copy(baseAddress + entry.Offset, actual, 0, actual.Length);
             if (!actual.AsSpan().SequenceEqual(expected))
             {
-                diagnostics.Write("工具 Hook", $"{name}: 函数字节不符，未安装 Hook。");
+                diagnostics?.Write("工具 Hook", $"{name}: 函数字节不符，未安装 Hook。");
                 return 0;
             }
             return module.BaseAddress + entry.Offset;
         }
         catch (Exception exception)
         {
-            diagnostics.Write("工具 Hook", $"{name}: 地址检查失败 {exception.GetType().Name}。");
+            diagnostics?.Write("工具 Hook", $"{name}: 地址检查失败 {exception.GetType().Name}。");
             return 0;
         }
     }
