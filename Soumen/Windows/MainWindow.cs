@@ -664,7 +664,21 @@ public sealed class MainWindow : Window
     {
         ImGui.Spacing();
         DrawSectionTitle("工具");
-        ImGui.TextColored(Muted, "I-Ching 功能将在逐项验证后加入这里。");
+        if (ImGui.CollapsingHeader("战场透视", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            DrawCheckbox("启用战场透视", nameof(configuration.FrontlineRadarEnabled),
+                configuration.FrontlineRadarEnabled, value => configuration.FrontlineRadarEnabled = value);
+            var range = configuration.FrontlineRadarRange;
+            ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
+            if (ImGui.SliderFloat("探测距离", ref range, 20f, 200f, "%.0f y"))
+            {
+                configuration.FrontlineRadarRange = range;
+                configuration.Save();
+            }
+            DrawCheckbox("显示敌方连线", nameof(configuration.FrontlineRadarLines),
+                configuration.FrontlineRadarLines, value => configuration.FrontlineRadarLines = value);
+            ImGui.TextColored(Muted, "在 PvP 区域显示已加载的敌方玩家。首次进入战场请核对敌我识别。");
+        }
     }
 
     private void DrawAbout()
