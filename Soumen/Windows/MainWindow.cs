@@ -670,6 +670,11 @@ public sealed class MainWindow : Window
             DrawCheckbox("后摇可移动", nameof(configuration.NoBackswingMovement),
                 configuration.NoBackswingMovement, value => configuration.NoBackswingMovement = value);
         }
+        if (ImGui.CollapsingHeader("功能相关", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            DrawCheckbox("取消钓鱼动画", nameof(configuration.CancelFishingAnimation),
+                configuration.CancelFishingAnimation, value => configuration.CancelFishingAnimation = value);
+        }
         if (ImGui.CollapsingHeader("战场透视", ImGuiTreeNodeFlags.DefaultOpen))
         {
             DrawCheckbox("启用战场透视", nameof(configuration.FrontlineRadarEnabled),
