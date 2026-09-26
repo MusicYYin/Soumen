@@ -13,8 +13,10 @@ public static class NativeHookInspector
     public static IReadOnlyList<string> GetCandidates()
         => AppDomain.CurrentDomain.GetAssemblies()
             .Where(assembly => assembly != typeof(Plugin).Assembly && !assembly.IsDynamic)
-            .Where(assembly => Types(assembly).Any(type => type != typeof(IDalamudPlugin)
-                && typeof(IDalamudPlugin).IsAssignableFrom(type)))
+            .Where(assembly => !IsFrameworkAssembly(assembly.GetName().Name))
+            .Where(assembly => assembly.GetReferencedAssemblies().Any(reference => reference.Name == "Dalamud")
+                || Types(assembly).Any(type => type != typeof(IDalamudPlugin)
+                    && typeof(IDalamudPlugin).IsAssignableFrom(type)))
             .Select(assembly => assembly.GetName().Name)
             .OfType<string>()
             .Distinct(StringComparer.Ordinal)
@@ -37,12 +39,12 @@ public static class NativeHookInspector
         {
             foreach (var field in owner.GetFields(All | BindingFlags.DeclaredOnly))
             {
-                if (!field.IsStatic || !LooksLikeHook(field)) continue;
+                if (!field.IsStatic || !IsRoot(field, assembly)) continue;
                 try
                 {
                     var instance = field.GetValue(null);
                     if (instance != null)
-                        count += Inspect(instance, $"{owner.FullName}.{field.Name}", 0, seen, diagnostics, game);
+                        count += Inspect(instance, $"{owner.FullName}.{field.Name}", 0, seen, diagnostics, game, assembly);
                 }
                 catch (Exception exception)
                 {
@@ -56,9 +58,9 @@ public static class NativeHookInspector
     }
 
     private static int Inspect(object instance, string path, int depth, HashSet<object> seen,
-        DiagnosticLogger diagnostics, ProcessModule? game)
+        DiagnosticLogger diagnostics, ProcessModule? game, Assembly assembly)
     {
-        if (!seen.Add(instance)) return 0;
+        if (!seen.Add(instance) || seen.Count > 500) return 0;
         var hook = FindHookType(instance.GetType());
         if (hook != null)
         {
@@ -82,17 +84,17 @@ public static class NativeHookInspector
             }
         }
 
-        if (depth >= 2) return 0;
+        if (depth >= 3) return 0;
         var count = 0;
         for (var type = instance.GetType(); type != null && type != typeof(object); type = type.BaseType)
         {
             foreach (var field in type.GetFields(All | BindingFlags.DeclaredOnly))
             {
-                if (field.IsStatic || !LooksLikeHook(field)) continue;
+                if (field.IsStatic || !MayContainHook(field, assembly)) continue;
                 try
                 {
                     var child = field.GetValue(instance);
-                    if (child != null) count += Inspect(child, $"{path}.{field.Name}", depth + 1, seen, diagnostics, game);
+                    if (child != null) count += Inspect(child, $"{path}.{field.Name}", depth + 1, seen, diagnostics, game, assembly);
                 }
                 catch (Exception exception)
                 {
@@ -107,6 +109,31 @@ public static class NativeHookInspector
         => FindHookType(field.FieldType) != null
             || field.Name.Contains("Hook", StringComparison.OrdinalIgnoreCase)
             || field.FieldType.Name.Contains("Hook", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRoot(FieldInfo field, Assembly assembly)
+        => LooksLikeHook(field)
+            || typeof(IDalamudPlugin).IsAssignableFrom(field.FieldType)
+            || (field.FieldType.Assembly == assembly
+                && (field.Name.Contains("Instance", StringComparison.OrdinalIgnoreCase)
+                    || field.Name == "Current" || field.Name == "Plugin"));
+
+    private static bool MayContainHook(FieldInfo field, Assembly assembly)
+    {
+        if (field.Name.Contains("password", StringComparison.OrdinalIgnoreCase)
+            || field.Name.Contains("secret", StringComparison.OrdinalIgnoreCase)
+            || field.Name.Contains("token", StringComparison.OrdinalIgnoreCase)
+            || field.Name.Contains("auth", StringComparison.OrdinalIgnoreCase)) return false;
+        return LooksLikeHook(field)
+            || field.FieldType.Assembly == assembly && field.FieldType.IsClass
+                && !field.FieldType.IsArray && !typeof(Delegate).IsAssignableFrom(field.FieldType);
+    }
+
+    private static bool IsFrameworkAssembly(string? name)
+        => name == null || name == "System" || name.StartsWith("System.", StringComparison.Ordinal)
+            || name == "Microsoft" || name.StartsWith("Microsoft.", StringComparison.Ordinal)
+            || name == "Dalamud" || name.StartsWith("Dalamud.", StringComparison.Ordinal)
+            || name == "Lumina" || name.StartsWith("Lumina.", StringComparison.Ordinal)
+            || name == "FFXIVClientStructs" || name.StartsWith("FFXIVClientStructs.", StringComparison.Ordinal);
 
     private static Type? FindHookType(Type type)
     {

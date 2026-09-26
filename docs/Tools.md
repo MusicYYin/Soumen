@@ -15,4 +15,4 @@
 
 原生入口来自用户提供的游戏内 Hook 快照；游戏更新后若模块大小或函数字节不同，Soumen 会停止安装对应 Hook 并在诊断日志说明原因。其他插件仍在使用相同入口时，Soumen 暂停该入口，避免重复安装。关闭其他插件的 Hook 后可重新接管；更改显示名称不会消除原生入口冲突。
 
-“关于 → 开发者模式 → 采集 Hook 快照”可以选择当前已加载的插件程序集，采集其 Hook 地址、启用状态和参数签名。只采集 Hook 元数据，不导出其他配置字段。部分游戏结构的实现参考 [KeitaToolbox](https://github.com/zhui-zi/KeitaToolbox)（MIT）。
+“关于 → 开发者模式 → 采集 Hook 快照”可以选择当前已加载的插件程序集，采集其 Hook 地址、启用状态和参数签名。采集器可沿插件实例成员、Hook 管理器和静态字段查找 Dalamud Hook；只记录 Hook 元数据，不导出其他配置字段。没有可访问的静态入口或使用其他 Hook 实现的插件可能返回 0 条，需要另行分析。部分游戏结构的实现参考 [KeitaToolbox](https://github.com/zhui-zi/KeitaToolbox)（MIT）。
