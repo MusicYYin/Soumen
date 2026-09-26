@@ -61,7 +61,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "打开 Soumen；可用参数：on、off、pause、resume、stop",
+            HelpMessage = "打开 Soumen 面板",
         });
 
         PluginInterface.UiBuilder.Draw += windowSystem.Draw;
@@ -90,27 +90,8 @@ public sealed class Plugin : IDalamudPlugin
     private void OnCommand(string command, string args)
     {
         _ = command;
-        switch (args.Trim().ToLowerInvariant())
-        {
-            case "on":
-                automation.SetEnabled(true);
-                break;
-            case "off":
-                automation.SetEnabled(false);
-                break;
-            case "stop":
-                automation.Stop();
-                break;
-            case "pause":
-                automation.SetPaused(true);
-                break;
-            case "resume":
-                automation.SetPaused(false);
-                break;
-            default:
-                mainWindow.Toggle();
-                break;
-        }
+        _ = args;
+        mainWindow.IsOpen = true;
     }
 
     private void OpenMainUi() => mainWindow.IsOpen = true;

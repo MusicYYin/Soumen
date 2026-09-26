@@ -21,4 +21,4 @@ https://raw.githubusercontent.com/MusicYYin/DalamudPlugins/main/pluginmaster.jso
 
 ## 命令
 
-`/soumen` 打开界面；`on`、`off`、`pause`、`resume`、`stop` 控制当前任务。
+`/soumen` 打开面板。
