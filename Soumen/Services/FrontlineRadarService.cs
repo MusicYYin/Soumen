@@ -41,6 +41,7 @@ public sealed class FrontlineRadarService : IDisposable
         var lineStart = new Vector2(ImGui.GetIO().DisplaySize.X * 0.5f, ImGui.GetIO().DisplaySize.Y * 0.85f);
         var inspected = 0;
         var enemies = 0;
+        var battalions = new Dictionary<byte, int>();
 
         foreach (var obj in Plugin.ObjectTable)
         {
@@ -50,6 +51,8 @@ public sealed class FrontlineRadarService : IDisposable
 
             inspected++;
             var native = (NativeBattleChara*)player.Address;
+            battalions.TryGetValue(native->Battalion, out var count);
+            battalions[native->Battalion] = count + 1;
             // Battalion is a team identifier, and zero is a valid value for the local team in Frontline.
             // IsHostile alone is not reliable in PvP (the previous check selected zero of 50+ players).
             var enemy = native->IsHostile || native->Battalion != localBattalion;
@@ -88,7 +91,7 @@ public sealed class FrontlineRadarService : IDisposable
         }
 
         diagnostics.WriteThrottled("iching-frontline-radar", "战场透视",
-            $"地图={Plugin.ClientState.TerritoryType}，自身阵营={localBattalion}，附近玩家={inspected}，判定敌方={enemies}。",
+            $"地图={Plugin.ClientState.TerritoryType}，自身阵营={localBattalion}，附近玩家={inspected}，判定敌方={enemies}，阵营分布={string.Join(",", battalions.Select(pair => $"{pair.Key}:{pair.Value}"))}。",
             TimeSpan.FromSeconds(10));
     }
 
