@@ -1,7 +1,9 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Game.ClientState.Objects.SubKinds;
+using Dalamud.Interface.Textures;
 using Dalamud.Interface.Utility;
+using Lumina.Excel.Sheets;
 using NativeBattleChara = FFXIVClientStructs.FFXIV.Client.Game.Character.BattleChara;
 
 namespace Soumen.Services;
@@ -48,7 +50,9 @@ public sealed class FrontlineRadarService : IDisposable
 
             inspected++;
             var native = (NativeBattleChara*)player.Address;
-            var enemy = native->IsHostile || (localBattalion != 0 && native->Battalion != 0 && native->Battalion != localBattalion);
+            // Battalion is a team identifier, and zero is a valid value for the local team in Frontline.
+            // IsHostile alone is not reliable in PvP (the previous check selected zero of 50+ players).
+            var enemy = native->IsHostile || native->Battalion != localBattalion;
             if (!enemy)
                 continue;
 
@@ -57,7 +61,29 @@ public sealed class FrontlineRadarService : IDisposable
                 continue;
 
             drawList.AddCircleFilled(screen, 5f * scale, color);
-            drawList.AddText(screen + new Vector2(9f, -8f) * scale, color, player.Name.TextValue);
+            var label = screen + new Vector2(9f, -8f) * scale;
+            if (configuration.FrontlineRadarJobIcons)
+            {
+                var jobId = player.ClassJob.RowId;
+                var sheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
+                if (sheet != null && sheet.TryGetRow(jobId, out var job))
+                    label = DrawIcon(drawList, label, job.Icon, scale);
+            }
+            if (configuration.FrontlineRadarBattleHighIcons)
+            {
+                var sheet = Plugin.DataManager.GetExcelSheet<Status>();
+                foreach (var effect in player.StatusList)
+                {
+                    if (sheet == null || !sheet.TryGetRow(effect.StatusId, out var status)) continue;
+                    var name = status.Name.ToString();
+                    if (!name.Contains("Battle High", StringComparison.OrdinalIgnoreCase)
+                        && !name.Contains("战意", StringComparison.Ordinal)
+                        && !name.Contains("戰意", StringComparison.Ordinal)) continue;
+                    label = DrawIcon(drawList, label, status.Icon, scale);
+                    break;
+                }
+            }
+            drawList.AddText(label, color, player.Name.TextValue);
             if (configuration.FrontlineRadarLines)
                 drawList.AddLine(lineStart, screen, color, 1f * scale);
         }
@@ -65,5 +91,17 @@ public sealed class FrontlineRadarService : IDisposable
         diagnostics.WriteThrottled("iching-frontline-radar", "战场透视",
             $"地图={Plugin.ClientState.TerritoryType}，自身阵营={localBattalion}，附近玩家={inspected}，判定敌方={enemies}。",
             TimeSpan.FromSeconds(10));
+    }
+
+    private static Vector2 DrawIcon(ImDrawListPtr drawList, Vector2 position, uint iconId, float scale)
+    {
+        var texture = Plugin.TextureProvider.GetFromGameIcon(new GameIconLookup(iconId)).GetWrapOrEmpty();
+        if (texture.Handle != 0)
+        {
+            var size = new Vector2(18f * scale);
+            drawList.AddImage(texture.Handle, position, position + size);
+            position.X += size.X + 3f * scale;
+        }
+        return position;
     }
 }

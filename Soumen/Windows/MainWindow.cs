@@ -676,9 +676,13 @@ public sealed class MainWindow : Window
                 configuration.FrontlineRadarRange = range;
                 configuration.Save();
             }
-            DrawCheckbox("显示敌方连线", nameof(configuration.FrontlineRadarLines),
+            DrawCheckbox("显示透视线", nameof(configuration.FrontlineRadarLines),
                 configuration.FrontlineRadarLines, value => configuration.FrontlineRadarLines = value);
-            ImGui.TextColored(Muted, "在 PvP 区域显示已加载的敌方玩家。首次进入战场请核对敌我识别。");
+            DrawCheckbox("显示职业图标", nameof(configuration.FrontlineRadarJobIcons),
+                configuration.FrontlineRadarJobIcons, value => configuration.FrontlineRadarJobIcons = value);
+            DrawCheckbox("显示战意图标", nameof(configuration.FrontlineRadarBattleHighIcons),
+                configuration.FrontlineRadarBattleHighIcons, value => configuration.FrontlineRadarBattleHighIcons = value);
+            ImGui.TextColored(Muted, "在 PvP 区域显示已加载的敌方玩家。");
         }
     }
 

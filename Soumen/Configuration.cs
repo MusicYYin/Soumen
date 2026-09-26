@@ -19,7 +19,7 @@ public sealed class Configuration : IPluginConfiguration
     [JsonIgnore]
     private IDalamudPluginInterface? pluginInterface;
 
-    public int Version { get; set; } = 15;
+    public int Version { get; set; } = 16;
 
     public AutomationTask ActiveTask { get; set; } = AutomationTask.None;
 
@@ -70,6 +70,10 @@ public sealed class Configuration : IPluginConfiguration
     public float FrontlineRadarRange { get; set; } = 100f;
 
     public bool FrontlineRadarLines { get; set; } = false;
+
+    public bool FrontlineRadarJobIcons { get; set; } = true;
+
+    public bool FrontlineRadarBattleHighIcons { get; set; } = true;
 
     public bool TeleportWhenStuck { get; set; } = true;
 
@@ -167,7 +171,7 @@ public sealed class Configuration : IPluginConfiguration
         configuration.TreasureSpotCorrectionRange = Math.Clamp(configuration.TreasureSpotCorrectionRange, 0f, 150f);
         configuration.DungeonFollowDistance = Math.Clamp(configuration.DungeonFollowDistance, 1.5f, 12f);
         configuration.FrontlineRadarRange = Math.Clamp(configuration.FrontlineRadarRange, 20f, 200f);
-        configuration.Version = 15;
+        configuration.Version = 16;
         configuration.Save();
         return configuration;
     }
