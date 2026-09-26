@@ -658,6 +658,30 @@ public sealed class MainWindow : Window
                 value => configuration.AutoCollectTreasureSacks = value);
         }
 
+    }
+
+    private void DrawTools()
+    {
+        ImGui.Spacing();
+        DrawSectionTitle("工具");
+        ImGui.TextColored(Muted, "I-Ching 功能将在逐项验证后加入这里。");
+    }
+
+    private void DrawAbout()
+    {
+        ImGui.Spacing();
+        DrawSectionTitle($"Soumen {typeof(MainWindow).Assembly.GetName().Version?.ToString(4) ?? "开发版"}");
+        ImGui.TextWrapped("自动化工具：寻宝、狩猎与工具。");
+        ImGui.Spacing();
+        ImGui.TextColored(Muted, "维护者：MusicYYin");
+        ImGui.TextColored(Muted, "命令：/soumen（打开面板）");
+        ImGui.Spacing();
+        var player = Plugin.ObjectTable.LocalPlayer;
+        var territory = Plugin.ClientState.TerritoryType;
+        UpdateSpeed(player?.Position, territory);
+        ImGui.TextUnformatted($"当前地图编号：{territory}");
+        ImGui.TextUnformatted(player == null ? "自身移动速度：未进入游戏" : $"自身移动速度：{currentSpeed:F2} y/s");
+
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("界面", ImGuiTreeNodeFlags.DefaultOpen))
         {
@@ -684,30 +708,6 @@ public sealed class MainWindow : Window
                 ImGui.EndCombo();
             }
         }
-
-    }
-
-    private void DrawTools()
-    {
-        ImGui.Spacing();
-        DrawSectionTitle("工具");
-        ImGui.TextColored(Muted, "I-Ching 功能将在逐项验证后加入这里。");
-    }
-
-    private void DrawAbout()
-    {
-        ImGui.Spacing();
-        DrawSectionTitle($"Soumen {typeof(MainWindow).Assembly.GetName().Version?.ToString(4) ?? "开发版"}");
-        ImGui.TextWrapped("自动化工具：寻宝、狩猎与工具。");
-        ImGui.Spacing();
-        ImGui.TextColored(Muted, "维护者：MusicYYin");
-        ImGui.TextColored(Muted, "命令：/soumen · on · off · pause · resume · stop");
-        ImGui.Spacing();
-        var player = Plugin.ObjectTable.LocalPlayer;
-        var territory = Plugin.ClientState.TerritoryType;
-        UpdateSpeed(player?.Position, territory);
-        ImGui.TextUnformatted($"当前地图编号：{territory}");
-        ImGui.TextUnformatted(player == null ? "自身移动速度：未进入游戏" : $"自身移动速度：{currentSpeed:F2} y/s");
 
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("开发者模式"))
