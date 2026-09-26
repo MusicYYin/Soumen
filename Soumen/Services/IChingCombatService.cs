@@ -1,7 +1,7 @@
-using System.Reflection;
 using System.Runtime.InteropServices;
 using Dalamud.Hooking;
 using Dalamud.Plugin.Services;
+using ActionRow = Lumina.Excel.Sheets.Action;
 
 namespace Soumen.Services;
 
@@ -11,10 +11,15 @@ internal sealed class IChingCombatService : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint NoBackswingDelegate(nint value);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate float GetActionRangeDelegate(uint actionId);
+
     private readonly Configuration configuration;
     private readonly DiagnosticLogger diagnostics;
     private Hook<NoBackswingDelegate>? noBackswing;
-    private bool failed;
+    private Hook<GetActionRangeDelegate>? actionRange;
+    private bool backswingFailed;
+    private bool rangeFailed;
 
     public IChingCombatService(Configuration configuration, DiagnosticLogger diagnostics)
     {
@@ -26,40 +31,79 @@ internal sealed class IChingCombatService : IDisposable
     public void Dispose()
     {
         Plugin.Framework.Update -= OnFrameworkUpdate;
+        actionRange?.Dispose();
         noBackswing?.Dispose();
     }
 
     private void OnFrameworkUpdate(IFramework framework)
     {
         _ = framework;
-        if (!configuration.NoBackswingMovement || failed)
+        if (!configuration.NoBackswingMovement)
         {
             if (noBackswing?.IsEnabled == true) noBackswing.Disable();
-            return;
         }
-
-        // Installing two detours on the same function while I-Ching is active is undefined.
-        if (noBackswing == null && AppDomain.CurrentDomain.GetAssemblies().Any(assembly =>
-                assembly.GetType("SamplePlugin.Hook.NoBackswingHook", false) != null))
-            return;
-
-        try
+        else if (!backswingFailed && (noBackswing != null || !OriginalLoaded("NoBackswingHook")))
         {
-            if (noBackswing == null)
+            try
             {
-                var address = IChingHookAddresses.Resolve("_NoBackswingHook", diagnostics);
-                if (address == 0) { failed = true; return; }
-                noBackswing = Plugin.GameInteropProvider.HookFromAddress<NoBackswingDelegate>(address, OnNoBackswing);
+                if (noBackswing == null)
+                {
+                    var address = IChingHookAddresses.Resolve("_NoBackswingHook", diagnostics);
+                    if (address == 0) backswingFailed = true;
+                    else noBackswing = Plugin.GameInteropProvider.HookFromAddress<NoBackswingDelegate>(address, OnNoBackswing);
+                }
+                if (noBackswing?.IsEnabled == false) noBackswing.Enable();
             }
+            catch (Exception exception)
+            {
+                backswingFailed = true;
+                ReportFailure("后摇可移动", exception);
+            }
+        }
 
-            if (!noBackswing.IsEnabled) noBackswing.Enable();
-        }
-        catch (Exception exception)
+        if (!configuration.IChingActionRangeEnabled)
         {
-            failed = true;
-            diagnostics.Write("I-Ching Hook", $"后摇可移动安装失败：{exception.GetType().Name}。");
-            Plugin.Log.Error(exception, "NoBackswing hook failed");
+            if (actionRange?.IsEnabled == true) actionRange.Disable();
         }
+        else if (!rangeFailed && (actionRange != null || !OriginalLoaded("ActionRangeHook")))
+        {
+            try
+            {
+                if (actionRange == null)
+                {
+                    var address = IChingHookAddresses.Resolve("_ActionRangeHook", diagnostics);
+                    if (address == 0) rangeFailed = true;
+                    else actionRange = Plugin.GameInteropProvider.HookFromAddress<GetActionRangeDelegate>(address, GetActionRange);
+                }
+                if (actionRange?.IsEnabled == false) actionRange.Enable();
+            }
+            catch (Exception exception)
+            {
+                rangeFailed = true;
+                ReportFailure("技能距离", exception);
+            }
+        }
+    }
+
+    private static bool OriginalLoaded(string typeName)
+        => AppDomain.CurrentDomain.GetAssemblies().Any(assembly =>
+            assembly.GetType($"SamplePlugin.Hook.{typeName}", false) != null);
+
+    private float GetActionRange(uint actionId)
+    {
+        var original = actionRange!.Original(actionId);
+        if (!configuration.IChingActionRangeEnabled || actionId == 0 || original <= 0f)
+            return original;
+        var sheet = Plugin.DataManager.GetExcelSheet<ActionRow>();
+        if (sheet == null || !sheet.TryGetRow(actionId, out var action) || action.TargetArea)
+            return original;
+        return original + configuration.IChingActionRangeBonus;
+    }
+
+    private void ReportFailure(string feature, Exception exception)
+    {
+        diagnostics.Write("I-Ching Hook", $"{feature}安装失败：{exception.GetType().Name}。");
+        Plugin.Log.Error(exception, $"{feature} hook failed");
     }
 
     // The 0.1.6.6 NoBackswingDetour takes one pointer, makes no external calls,

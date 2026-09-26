@@ -686,6 +686,18 @@ public sealed class MainWindow : Window
         }
         if (ImGui.CollapsingHeader("战斗相关", ImGuiTreeNodeFlags.DefaultOpen))
         {
+            DrawCheckbox("技能距离", nameof(configuration.IChingActionRangeEnabled),
+                configuration.IChingActionRangeEnabled, value => configuration.IChingActionRangeEnabled = value);
+            if (configuration.IChingActionRangeEnabled)
+            {
+                var rangeBonus = configuration.IChingActionRangeBonus;
+                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
+                if (ImGui.SliderFloat("技能距离增加量", ref rangeBonus, 0f, 2f, "+%.1f y"))
+                {
+                    configuration.IChingActionRangeBonus = rangeBonus;
+                    configuration.Save();
+                }
+            }
             DrawCheckbox("后摇可移动", nameof(configuration.NoBackswingMovement),
                 configuration.NoBackswingMovement, value => configuration.NoBackswingMovement = value);
         }
