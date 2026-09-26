@@ -79,6 +79,14 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool CancelFishingAnimation { get; set; } = false;
 
+    public bool IChingSpeedEnabled { get; set; } = false;
+
+    public float IChingSpeedBonus { get; set; } = 0.2f;
+
+    public bool IChingMaxAcceleration { get; set; } = false;
+
+    public bool IChingNoFallDamage { get; set; } = false;
+
     public bool TeleportWhenStuck { get; set; } = true;
 
     public bool DiagnosticMode { get; set; } = false;
@@ -175,6 +183,7 @@ public sealed class Configuration : IPluginConfiguration
         configuration.TreasureSpotCorrectionRange = Math.Clamp(configuration.TreasureSpotCorrectionRange, 0f, 150f);
         configuration.DungeonFollowDistance = Math.Clamp(configuration.DungeonFollowDistance, 1.5f, 12f);
         configuration.FrontlineRadarRange = Math.Clamp(configuration.FrontlineRadarRange, 20f, 200f);
+        configuration.IChingSpeedBonus = Math.Clamp(configuration.IChingSpeedBonus, 0f, 2f);
         configuration.Version = 16;
         configuration.Save();
         return configuration;

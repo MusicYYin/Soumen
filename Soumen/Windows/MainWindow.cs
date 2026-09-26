@@ -665,6 +665,25 @@ public sealed class MainWindow : Window
     {
         ImGui.Spacing();
         DrawSectionTitle("工具");
+        if (ImGui.CollapsingHeader("移动相关", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            DrawCheckbox("移速", nameof(configuration.IChingSpeedEnabled),
+                configuration.IChingSpeedEnabled, value => configuration.IChingSpeedEnabled = value);
+            if (configuration.IChingSpeedEnabled)
+            {
+                var speed = configuration.IChingSpeedBonus;
+                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
+                if (ImGui.SliderFloat("移速增加量", ref speed, 0f, 2f, "+%.1f y/s"))
+                {
+                    configuration.IChingSpeedBonus = speed;
+                    configuration.Save();
+                }
+            }
+            DrawCheckbox("最大加速度", nameof(configuration.IChingMaxAcceleration),
+                configuration.IChingMaxAcceleration, value => configuration.IChingMaxAcceleration = value);
+            DrawCheckbox("掉落无伤", nameof(configuration.IChingNoFallDamage),
+                configuration.IChingNoFallDamage, value => configuration.IChingNoFallDamage = value);
+        }
         if (ImGui.CollapsingHeader("战斗相关", ImGuiTreeNodeFlags.DefaultOpen))
         {
             DrawCheckbox("后摇可移动", nameof(configuration.NoBackswingMovement),

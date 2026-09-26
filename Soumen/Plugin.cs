@@ -44,6 +44,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly FrontlineRadarService frontlineRadarService;
     private readonly IChingCombatService iChingCombatService;
     private readonly IChingFishingService iChingFishingService;
+    private readonly IChingMovementService iChingMovementService;
     private readonly MainWindow mainWindow;
 
     public Plugin()
@@ -63,6 +64,7 @@ public sealed class Plugin : IDalamudPlugin
         frontlineRadarService = new FrontlineRadarService(configuration, diagnostics);
         iChingCombatService = new IChingCombatService(configuration, diagnostics);
         iChingFishingService = new IChingFishingService(configuration, diagnostics);
+        iChingMovementService = new IChingMovementService(configuration, diagnostics);
         mainWindow = new MainWindow(configuration, automation, leaderTreasureAutomation, autoDiscardService,
             statisticsService, diagnostics, huntAutomation);
         windowSystem.AddWindow(mainWindow);
@@ -88,6 +90,7 @@ public sealed class Plugin : IDalamudPlugin
         frontlineRadarService.Dispose();
         iChingCombatService.Dispose();
         iChingFishingService.Dispose();
+        iChingMovementService.Dispose();
         huntAutomation.Dispose();
         statisticsService.Dispose();
         autoDiscardService.Dispose();
