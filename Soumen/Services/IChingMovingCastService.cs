@@ -48,8 +48,11 @@ internal sealed class IChingMovingCastService : IDisposable
             return;
         }
         if (failed) return;
-        if (packetHook == null && AppDomain.CurrentDomain.GetAssemblies().Any(assembly =>
-                assembly.GetType("SamplePlugin.Hook.NetRe", false) != null)) return;
+        if (IChingOriginalHookGuard.Blocks("NetRe", true, diagnostics))
+        {
+            if (packetHook?.IsEnabled == true) packetHook.Disable();
+            return;
+        }
 
         try
         {
@@ -70,7 +73,7 @@ internal sealed class IChingMovingCastService : IDisposable
                 packetHook = Plugin.GameInteropProvider.HookFromSignature<SendPacketDelegate>(SendPacketCall, InterceptPacket);
                 diagnostics.Write("I-Ching Hook", $"移动读条已读取本地移动包编号：{normalOpcode}/{combatOpcode}。");
             }
-            if (!packetHook.IsEnabled) packetHook.Enable();
+            if (!packetHook.IsEnabled) { packetHook.Enable(); diagnostics.Write("I-Ching Hook", "移动读条发送包入口已接管。"); }
         }
         catch (Exception exception)
         {

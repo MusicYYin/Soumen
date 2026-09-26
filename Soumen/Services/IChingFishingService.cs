@@ -151,9 +151,13 @@ internal sealed unsafe class IChingFishingService : IDisposable
             && Plugin.Condition[ConditionFlag.Gathering];
         if (!configuration.CancelFishingAnimation || failed) return;
 
-        if (syncHook == null && AppDomain.CurrentDomain.GetAssemblies().Any(assembly =>
-                assembly.GetType("SamplePlugin.Hook.AutoCancelFSHAnimationHook", false) != null))
+        if (IChingOriginalHookGuard.Blocks("AutoCancelFSHAnimationHook", true, diagnostics))
+        {
+            interceptActive = false;
+            if (syncHook?.IsEnabled == true) syncHook.Disable();
+            if (asyncHook?.IsEnabled == true) asyncHook.Disable();
             return;
+        }
 
         if (syncHook == null)
         {
@@ -166,6 +170,7 @@ internal sealed unsafe class IChingFishingService : IDisposable
                 asyncHook = Plugin.GameInteropProvider.HookFromAddress<GetResourceAsyncDelegate>(asyncAddress, GetAsync);
                 syncHook.Enable();
                 asyncHook.Enable();
+                diagnostics.Write("I-Ching Hook", "取消钓鱼动画资源入口已接管。");
             }
             catch (Exception exception)
             {
@@ -178,6 +183,11 @@ internal sealed unsafe class IChingFishingService : IDisposable
                 diagnostics.Write("I-Ching Hook", $"取消钓鱼动画安装失败：{exception.GetType().Name}。");
                 Plugin.Log.Error(exception, "Fishing resource hooks failed");
             }
+        }
+        else
+        {
+            if (syncHook?.IsEnabled == false) syncHook.Enable();
+            if (asyncHook?.IsEnabled == false) asyncHook.Enable();
         }
 
         var count = Interlocked.Exchange(ref intercepted, 0);

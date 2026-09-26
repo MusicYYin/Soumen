@@ -71,11 +71,14 @@ internal sealed class IChingMovementService : IDisposable
     private void OnFrameworkUpdate(IFramework framework)
     {
         _ = framework;
-        // The source plugin may remain loaded during the one-time snapshot; do not stack these hooks.
-        if (AppDomain.CurrentDomain.GetAssemblies().Any(assembly =>
-            assembly.GetType("SamplePlugin.Hook.MySpeedHook", false) != null)) return;
+        var speedRequested = configuration.IChingSpeedEnabled
+            && !IChingOriginalHookGuard.Blocks("MySpeedHook", true, diagnostics);
+        var accelerationRequested = configuration.IChingMaxAcceleration
+            && !IChingOriginalHookGuard.Blocks("MySpeedHook", true, diagnostics);
+        var fallDamageRequested = configuration.IChingNoFallDamage
+            && !IChingOriginalHookGuard.Blocks("NoFallDamage", true, diagnostics);
 
-        if (configuration.IChingSpeedEnabled && speedHook == null && !speedFailed)
+        if (speedRequested && speedHook == null && !speedFailed)
         {
             try
             {
@@ -86,7 +89,7 @@ internal sealed class IChingMovementService : IDisposable
             catch (Exception e) { speedFailed = true; ReportFailure("移速", e); }
         }
 
-        if (configuration.IChingMaxAcceleration && accelerationHook == null && !accelerationFailed)
+        if (accelerationRequested && accelerationHook == null && !accelerationFailed)
         {
             try
             {
@@ -97,7 +100,7 @@ internal sealed class IChingMovementService : IDisposable
             catch (Exception e) { accelerationFailed = true; ReportFailure("最大加速度", e); }
         }
 
-        if (configuration.IChingNoFallDamage && fallDamageHook == null && !fallDamageFailed)
+        if (fallDamageRequested && fallDamageHook == null && !fallDamageFailed)
         {
             try
             {
@@ -110,40 +113,42 @@ internal sealed class IChingMovementService : IDisposable
 
         try
         {
-            SetEnabled(speedHook, configuration.IChingSpeedEnabled);
-            SetEnabled(accelerationHook, configuration.IChingMaxAcceleration);
-            SetEnabled(fallDamageHook, configuration.IChingNoFallDamage);
+            SetEnabled(speedHook, speedRequested, "移速");
+            SetEnabled(accelerationHook, accelerationRequested, "最大加速度");
+            SetEnabled(fallDamageHook, fallDamageRequested, "掉落无伤");
         }
         catch (Exception exception) { ReportFailure("移动 Hook 开关", exception); }
 
         Manage(ref permissionHook, ref permissionFailed, configuration.IChingForceMovement,
-            "_MovePermissionHook", new MovePermissionDelegate(AllowMovement));
+            "_MovePermissionHook", "MovePermission", new MovePermissionDelegate(AllowMovement));
         Manage(ref knockbackHook, ref knockbackFailed, configuration.IChingAntiKnockback,
-            "_AntiKnockHook", new AntiKnockbackDelegate(IgnoreKnockback));
+            "_AntiKnockHook", "AntiKnock", new AntiKnockbackDelegate(IgnoreKnockback));
         Manage(ref fallCheckHook, ref fallCheckFailed, configuration.IChingNoDrop,
-            "_FallCheckHook", new FallCheckDelegate(ClearFallFlags));
+            "_FallCheckHook", "FallCheck", new FallCheckDelegate(ClearFallFlags));
     }
 
-    private void Manage<T>(ref Hook<T>? hook, ref bool failed, bool desired, string key, T detour) where T : Delegate
+    private void Manage<T>(ref Hook<T>? hook, ref bool failed, bool desired, string key, string originalType, T detour) where T : Delegate
     {
         if (failed) return;
         try
         {
+            desired &= !IChingOriginalHookGuard.Blocks(originalType, desired, diagnostics);
             if (desired && hook == null)
             {
                 var address = IChingHookAddresses.Resolve(key, diagnostics);
                 if (address == 0) { failed = true; return; }
                 hook = Plugin.GameInteropProvider.HookFromAddress(address, detour);
             }
-            SetEnabled(hook, desired);
+            SetEnabled(hook, desired, key);
         }
         catch (Exception exception) { failed = true; ReportFailure(key, exception); }
     }
 
-    private static void SetEnabled<T>(Hook<T>? hook, bool desired) where T : Delegate
+    private void SetEnabled<T>(Hook<T>? hook, bool desired, string feature) where T : Delegate
     {
         if (hook == null || hook.IsEnabled == desired) return;
-        if (desired) hook.Enable(); else hook.Disable();
+        if (desired) { hook.Enable(); diagnostics.Write("I-Ching Hook", $"{feature}已接管。"); }
+        else hook.Disable();
     }
 
     private float GetSpeed(nint context)

@@ -55,14 +55,14 @@ internal sealed unsafe class IChingStatusService : IDisposable
     private void Update(IFramework framework)
     {
         _ = framework;
-        if (AppDomain.CurrentDomain.GetAssemblies().Any(assembly =>
-                assembly.GetType("SamplePlugin.Hook.StatusCheck", false) != null)) return;
+        var blocked = IChingOriginalHookGuard.Blocks("StatusCheck",
+            configuration.IChingIgnoreCharm || configuration.IChingStatusBlock, diagnostics);
 
-        Sync(ref forcedAction, ref forcedFailed, configuration.IChingIgnoreCharm,
+        Sync(ref forcedAction, ref forcedFailed, configuration.IChingIgnoreCharm && !blocked,
             "noBewitchActionHook", new ForcedActionDelegate(InterceptForcedAction));
-        Sync(ref statusUpdate, ref updateFailed, configuration.IChingStatusBlock,
+        Sync(ref statusUpdate, ref updateFailed, configuration.IChingStatusBlock && !blocked,
             "_StatusCheckHook", new StatusUpdateDelegate(FilterStatusManager));
-        Sync(ref statusPacket, ref packetFailed, configuration.IChingStatusBlock,
+        Sync(ref statusPacket, ref packetFailed, configuration.IChingStatusBlock && !blocked,
             "_ProcessPacketStatusEffectHookGL", new StatusPacketDelegate(FilterStatusPacket));
     }
 
@@ -79,7 +79,8 @@ internal sealed unsafe class IChingStatusService : IDisposable
             }
             if (hook != null && hook.IsEnabled != enabled)
             {
-                if (enabled) hook.Enable(); else hook.Disable();
+                if (enabled) { hook.Enable(); diagnostics.Write("I-Ching Hook", $"{name}已接管。"); }
+                else hook.Disable();
             }
         }
         catch (Exception exception)

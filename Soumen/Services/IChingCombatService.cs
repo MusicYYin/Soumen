@@ -50,11 +50,11 @@ internal sealed class IChingCombatService : IDisposable
     private void OnFrameworkUpdate(IFramework framework)
     {
         _ = framework;
-        if (!configuration.NoBackswingMovement)
+        if (!configuration.NoBackswingMovement || IChingOriginalHookGuard.Blocks("NoBackswingHook", configuration.NoBackswingMovement, diagnostics))
         {
             if (noBackswing?.IsEnabled == true) noBackswing.Disable();
         }
-        else if (!backswingFailed && (noBackswing != null || !OriginalLoaded("NoBackswingHook")))
+        else if (!backswingFailed)
         {
             try
             {
@@ -64,7 +64,7 @@ internal sealed class IChingCombatService : IDisposable
                     if (address == 0) backswingFailed = true;
                     else noBackswing = Plugin.GameInteropProvider.HookFromAddress<NoBackswingDelegate>(address, OnNoBackswing);
                 }
-                if (noBackswing?.IsEnabled == false) noBackswing.Enable();
+                if (noBackswing?.IsEnabled == false) { noBackswing.Enable(); diagnostics.Write("I-Ching Hook", "后摇可移动已接管。"); }
             }
             catch (Exception exception)
             {
@@ -73,11 +73,11 @@ internal sealed class IChingCombatService : IDisposable
             }
         }
 
-        if (!configuration.IChingActionRangeEnabled)
+        if (!configuration.IChingActionRangeEnabled || IChingOriginalHookGuard.Blocks("ActionRangeHook", configuration.IChingActionRangeEnabled, diagnostics))
         {
             if (actionRange?.IsEnabled == true) actionRange.Disable();
         }
-        else if (!rangeFailed && (actionRange != null || !OriginalLoaded("ActionRangeHook")))
+        else if (!rangeFailed)
         {
             try
             {
@@ -87,7 +87,7 @@ internal sealed class IChingCombatService : IDisposable
                     if (address == 0) rangeFailed = true;
                     else actionRange = Plugin.GameInteropProvider.HookFromAddress<GetActionRangeDelegate>(address, GetActionRange);
                 }
-                if (actionRange?.IsEnabled == false) actionRange.Enable();
+                if (actionRange?.IsEnabled == false) { actionRange.Enable(); diagnostics.Write("I-Ching Hook", "技能距离已接管。"); }
             }
             catch (Exception exception)
             {
@@ -96,11 +96,11 @@ internal sealed class IChingCombatService : IDisposable
             }
         }
 
-        if (!configuration.IChingTargetRadiusEnabled)
+        if (!configuration.IChingTargetRadiusEnabled || IChingOriginalHookGuard.Blocks("ActorRadiusHook", configuration.IChingTargetRadiusEnabled, diagnostics))
         {
             if (actorRadius?.IsEnabled == true) actorRadius.Disable();
         }
-        else if (!radiusFailed && (actorRadius != null || !OriginalLoaded("ActorRadiusHook")))
+        else if (!radiusFailed)
         {
             try
             {
@@ -110,7 +110,7 @@ internal sealed class IChingCombatService : IDisposable
                     if (address == 0) radiusFailed = true;
                     else actorRadius = Plugin.GameInteropProvider.HookFromAddress<GetActorRadiusDelegate>(address, GetRadius);
                 }
-                if (actorRadius?.IsEnabled == false) actorRadius.Enable();
+                if (actorRadius?.IsEnabled == false) { actorRadius.Enable(); diagnostics.Write("I-Ching Hook", "目标圈大小已接管。"); }
             }
             catch (Exception exception)
             {
@@ -119,11 +119,11 @@ internal sealed class IChingCombatService : IDisposable
             }
         }
 
-        if (!configuration.IChingNoActionMove)
+        if (!configuration.IChingNoActionMove || IChingOriginalHookGuard.Blocks("NoActionMoveHook", configuration.IChingNoActionMove, diagnostics))
         {
             if (noActionMove?.IsEnabled == true) noActionMove.Disable();
         }
-        else if (!noActionMoveFailed && (noActionMove != null || !OriginalLoaded("NoActionMoveHook")))
+        else if (!noActionMoveFailed)
         {
             try
             {
@@ -133,7 +133,7 @@ internal sealed class IChingCombatService : IDisposable
                     if (address == 0) noActionMoveFailed = true;
                     else noActionMove = Plugin.GameInteropProvider.HookFromAddress<NoActionMoveDelegate>(address, PreventActionMovement);
                 }
-                if (noActionMove?.IsEnabled == false) noActionMove.Enable();
+                if (noActionMove?.IsEnabled == false) { noActionMove.Enable(); diagnostics.Write("I-Ching Hook", "突进无位移已接管。"); }
             }
             catch (Exception exception)
             {
@@ -142,10 +142,6 @@ internal sealed class IChingCombatService : IDisposable
             }
         }
     }
-
-    private static bool OriginalLoaded(string typeName)
-        => AppDomain.CurrentDomain.GetAssemblies().Any(assembly =>
-            assembly.GetType($"SamplePlugin.Hook.{typeName}", false) != null);
 
     private float GetActionRange(uint actionId)
     {
