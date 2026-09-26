@@ -2,8 +2,8 @@ using System.Reflection;
 
 namespace Soumen.Services;
 
-/// <summary>Only blocks an entrypoint while the original plugin actually has an enabled hook there.</summary>
-internal static class IChingOriginalHookGuard
+/// <summary>Waits while another loaded plugin still has an enabled Hook at the matching feature entrypoint.</summary>
+internal static class ExternalHookGuard
 {
     private const BindingFlags All = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
     private static readonly Dictionary<string, (DateTime Checked, bool Enabled)> Cache = new(StringComparer.Ordinal);
@@ -12,8 +12,8 @@ internal static class IChingOriginalHookGuard
     public static bool Blocks(string typeName, bool requested, DiagnosticLogger diagnostics)
     {
         if (!requested || !IsEnabled(typeName)) return false;
-        diagnostics.WriteThrottled($"iching-original-{typeName}", "I-Ching Hook",
-            $"原版 I-Ching 的 {typeName} Hook 仍在运行；当前入口等待原版停用后再接管。",
+        diagnostics.WriteThrottled($"soumen-tools-external-{typeName}", "工具 Hook",
+            $"其他插件的 {typeName} Hook 仍在运行；Soumen 暂停该入口以避免重复安装。",
             TimeSpan.FromSeconds(30));
         return true;
     }
@@ -34,8 +34,19 @@ internal static class IChingOriginalHookGuard
     {
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
         {
-            var ownerType = assembly.GetType($"SamplePlugin.Hook.{typeName}", false);
-            var managerType = assembly.GetType("SamplePlugin.HookManager", false);
+            if (assembly == typeof(Plugin).Assembly || assembly.IsDynamic) continue;
+            Type[] types;
+            try
+            {
+                if (!assembly.GetReferencedAssemblies().Any(reference => reference.Name == "Dalamud")) continue;
+                types = assembly.GetTypes();
+            }
+            catch (ReflectionTypeLoadException exception) { types = exception.Types.OfType<Type>().ToArray(); }
+            catch { continue; }
+
+            var ownerType = types.FirstOrDefault(type => type.Name == typeName
+                && type.Namespace?.Contains("Hook", StringComparison.OrdinalIgnoreCase) == true);
+            var managerType = types.FirstOrDefault(type => type.Name == "HookManager");
             if (ownerType == null || managerType == null) continue;
 
             foreach (var owner in managerType.GetFields(All))

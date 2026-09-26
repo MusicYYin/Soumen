@@ -6,8 +6,8 @@ using Dalamud.Plugin.Services;
 
 namespace Soumen.Services;
 
-/// <summary>Movement features based on verified native entrypoints from the running 0.1.6.6 plugin.</summary>
-internal sealed class IChingMovementService : IDisposable
+/// <summary>Movement features based on verified native game entrypoints.</summary>
+internal sealed class ToolMovementService : IDisposable
 {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate float SpeedDelegate(nint context);
@@ -50,7 +50,7 @@ internal sealed class IChingMovementService : IDisposable
     private bool knockbackFailed;
     private bool fallCheckFailed;
 
-    public IChingMovementService(Configuration configuration, DiagnosticLogger diagnostics)
+    public ToolMovementService(Configuration configuration, DiagnosticLogger diagnostics)
     {
         this.configuration = configuration;
         this.diagnostics = diagnostics;
@@ -71,18 +71,18 @@ internal sealed class IChingMovementService : IDisposable
     private void OnFrameworkUpdate(IFramework framework)
     {
         _ = framework;
-        var speedRequested = configuration.IChingSpeedEnabled
-            && !IChingOriginalHookGuard.Blocks("MySpeedHook", true, diagnostics);
-        var accelerationRequested = configuration.IChingMaxAcceleration
-            && !IChingOriginalHookGuard.Blocks("MySpeedHook", true, diagnostics);
-        var fallDamageRequested = configuration.IChingNoFallDamage
-            && !IChingOriginalHookGuard.Blocks("NoFallDamage", true, diagnostics);
+        var speedRequested = configuration.ToolSpeedEnabled
+            && !ExternalHookGuard.Blocks("MySpeedHook", true, diagnostics);
+        var accelerationRequested = configuration.ToolMaxAcceleration
+            && !ExternalHookGuard.Blocks("MySpeedHook", true, diagnostics);
+        var fallDamageRequested = configuration.ToolNoFallDamage
+            && !ExternalHookGuard.Blocks("NoFallDamage", true, diagnostics);
 
         if (speedRequested && speedHook == null && !speedFailed)
         {
             try
             {
-                var address = IChingHookAddresses.Resolve("_speedUpdateHook", diagnostics);
+                var address = ToolHookAddresses.Resolve("_speedUpdateHook", diagnostics);
                 if (address == 0) speedFailed = true;
                 else speedHook = Plugin.GameInteropProvider.HookFromAddress<SpeedDelegate>(address, GetSpeed);
             }
@@ -93,7 +93,7 @@ internal sealed class IChingMovementService : IDisposable
         {
             try
             {
-                var address = IChingHookAddresses.Resolve("_speed2", diagnostics);
+                var address = ToolHookAddresses.Resolve("_speed2", diagnostics);
                 if (address == 0) accelerationFailed = true;
                 else accelerationHook = Plugin.GameInteropProvider.HookFromAddress<AccelerationDelegate>(address, ApplyAcceleration);
             }
@@ -104,7 +104,7 @@ internal sealed class IChingMovementService : IDisposable
         {
             try
             {
-                var address = IChingHookAddresses.Resolve("_NoFallDamageHook", diagnostics);
+                var address = ToolHookAddresses.Resolve("_NoFallDamageHook", diagnostics);
                 if (address == 0) fallDamageFailed = true;
                 else fallDamageHook = Plugin.GameInteropProvider.HookFromAddress<FallDamageDelegate>(address, IgnoreFallDamage);
             }
@@ -119,11 +119,11 @@ internal sealed class IChingMovementService : IDisposable
         }
         catch (Exception exception) { ReportFailure("移动 Hook 开关", exception); }
 
-        Manage(ref permissionHook, ref permissionFailed, configuration.IChingForceMovement,
+        Manage(ref permissionHook, ref permissionFailed, configuration.ToolForceMovement,
             "_MovePermissionHook", "MovePermission", new MovePermissionDelegate(AllowMovement));
-        Manage(ref knockbackHook, ref knockbackFailed, configuration.IChingAntiKnockback,
+        Manage(ref knockbackHook, ref knockbackFailed, configuration.ToolAntiKnockback,
             "_AntiKnockHook", "AntiKnock", new AntiKnockbackDelegate(IgnoreKnockback));
-        Manage(ref fallCheckHook, ref fallCheckFailed, configuration.IChingNoDrop,
+        Manage(ref fallCheckHook, ref fallCheckFailed, configuration.ToolNoDrop,
             "_FallCheckHook", "FallCheck", new FallCheckDelegate(ClearFallFlags));
     }
 
@@ -132,10 +132,10 @@ internal sealed class IChingMovementService : IDisposable
         if (failed) return;
         try
         {
-            desired &= !IChingOriginalHookGuard.Blocks(originalType, desired, diagnostics);
+            desired &= !ExternalHookGuard.Blocks(originalType, desired, diagnostics);
             if (desired && hook == null)
             {
-                var address = IChingHookAddresses.Resolve(key, diagnostics);
+                var address = ToolHookAddresses.Resolve(key, diagnostics);
                 if (address == 0) { failed = true; return; }
                 hook = Plugin.GameInteropProvider.HookFromAddress(address, detour);
             }
@@ -147,26 +147,26 @@ internal sealed class IChingMovementService : IDisposable
     private void SetEnabled<T>(Hook<T>? hook, bool desired, string feature) where T : Delegate
     {
         if (hook == null || hook.IsEnabled == desired) return;
-        if (desired) { hook.Enable(); diagnostics.Write("I-Ching Hook", $"{feature}已接管。"); }
+        if (desired) { hook.Enable(); diagnostics.Write("工具 Hook", $"{feature}已接管。"); }
         else hook.Disable();
     }
 
     private float GetSpeed(nint context)
     {
         var original = speedHook!.Original(context);
-        if (!configuration.IChingSpeedEnabled || !float.IsFinite(original)) return original;
+        if (!configuration.ToolSpeedEnabled || !float.IsFinite(original)) return original;
         if (Plugin.ClientState.IsPvP || Plugin.Condition[ConditionFlag.InDeepDungeon])
         {
             var local = Plugin.ObjectTable.LocalPlayer;
             if (local == null || local.StatusList.Any(status => MovementLockStatuses.Contains(status.StatusId)))
                 return original;
         }
-        return original + configuration.IChingSpeedBonus;
+        return original * configuration.ToolSpeedMultiplier;
     }
 
     private void ApplyAcceleration(nint context)
     {
-        if (configuration.IChingMaxAcceleration && context != 0)
+        if (configuration.ToolMaxAcceleration && context != 0)
         {
             try { SafeMemory.Write(context + 0x44, 100f); }
             catch (Exception exception) { ReportFailure("最大加速度写入", exception); }
@@ -175,28 +175,28 @@ internal sealed class IChingMovementService : IDisposable
     }
 
     private nint IgnoreFallDamage(nuint actor, uint flags)
-        => configuration.IChingNoFallDamage ? 0 : fallDamageHook!.Original(actor, flags);
+        => configuration.ToolNoFallDamage ? 0 : fallDamageHook!.Original(actor, flags);
 
     private nint AllowMovement(nint conditions, uint actionId, int third, int fourth)
     {
-        if (configuration.IChingForceMovement && actionId is 96 or 97 or 98 or 99 or 1001 or 1006 or 1007 or 1008)
+        if (configuration.ToolForceMovement && actionId is 96 or 97 or 98 or 99 or 1001 or 1006 or 1007 or 1008)
             return 1;
         return permissionHook!.Original(conditions, actionId, third, fourth);
     }
 
     private nint IgnoreKnockback(nint actor, float rotation, float distance, float duration, byte fifth, nint sixth)
-        => configuration.IChingAntiKnockback ? 0 : knockbackHook!.Original(actor, rotation, distance, duration, fifth, sixth);
+        => configuration.ToolAntiKnockback ? 0 : knockbackHook!.Original(actor, rotation, distance, duration, fifth, sixth);
 
     private nint ClearFallFlags(nint actor, nint flags, nint extra)
     {
-        if (configuration.IChingNoDrop && (flags.ToInt64() & 0x700) != 0)
+        if (configuration.ToolNoDrop && (flags.ToInt64() & 0x700) != 0)
             flags = (nint)((flags.ToInt64() & ~0x700L) | 2L);
         return fallCheckHook!.Original(actor, flags, extra);
     }
 
     private void ReportFailure(string feature, Exception exception)
     {
-        diagnostics.Write("I-Ching Hook", $"{feature}：{exception.GetType().Name}。");
-        Plugin.Log.Error(exception, $"I-Ching {feature} hook error");
+        diagnostics.Write("工具 Hook", $"{feature}：{exception.GetType().Name}。");
+        Plugin.Log.Error(exception, $"Soumen {feature} hook error");
     }
 }

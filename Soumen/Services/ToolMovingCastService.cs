@@ -7,7 +7,7 @@ using Dalamud.Plugin.Services;
 namespace Soumen.Services;
 
 /// <summary>Suppresses local position packets during the final part of a cast.</summary>
-internal sealed class IChingMovingCastService : IDisposable
+internal sealed class ToolMovingCastService : IDisposable
 {
     private const string SendPacketCall = "E8 ?? ?? ?? ?? 84 ?? 74 ?? 48 ?? ?? C7 87 ?? ?? ?? ?? ?? ?? ?? ??";
     private const string NormalPositionOpcode = "41 B8 ?? ?? ?? ?? F6 C2";
@@ -26,7 +26,7 @@ internal sealed class IChingMovingCastService : IDisposable
     private bool failed;
     private long suppressed;
 
-    public IChingMovingCastService(Configuration configuration, DiagnosticLogger diagnostics)
+    public ToolMovingCastService(Configuration configuration, DiagnosticLogger diagnostics)
     {
         this.configuration = configuration;
         this.diagnostics = diagnostics;
@@ -42,13 +42,13 @@ internal sealed class IChingMovingCastService : IDisposable
     private void Update(IFramework framework)
     {
         _ = framework;
-        if (!configuration.IChingMovingCast)
+        if (!configuration.ToolMovingCast)
         {
             if (packetHook?.IsEnabled == true) packetHook.Disable();
             return;
         }
         if (failed) return;
-        if (IChingOriginalHookGuard.Blocks("NetRe", true, diagnostics))
+        if (ExternalHookGuard.Blocks("NetRe", true, diagnostics))
         {
             if (packetHook?.IsEnabled == true) packetHook.Disable();
             return;
@@ -71,32 +71,32 @@ internal sealed class IChingMovingCastService : IDisposable
                     throw new InvalidOperationException("未能确认当前客户端的移动包编号");
 
                 packetHook = Plugin.GameInteropProvider.HookFromSignature<SendPacketDelegate>(SendPacketCall, InterceptPacket);
-                diagnostics.Write("I-Ching Hook", $"移动读条已读取本地移动包编号：{normalOpcode}/{combatOpcode}。");
+                diagnostics.Write("工具 Hook", $"移动读条已读取本地移动包编号：{normalOpcode}/{combatOpcode}。");
             }
-            if (!packetHook.IsEnabled) { packetHook.Enable(); diagnostics.Write("I-Ching Hook", "移动读条发送包入口已接管。"); }
+            if (!packetHook.IsEnabled) { packetHook.Enable(); diagnostics.Write("工具 Hook", "移动读条发送包入口已接管。"); }
         }
         catch (Exception exception)
         {
             failed = true;
             packetHook?.Dispose();
             packetHook = null;
-            diagnostics.Write("I-Ching Hook", $"移动读条不可用：{exception.GetType().Name} {exception.Message}。");
+            diagnostics.Write("工具 Hook", $"移动读条不可用：{exception.GetType().Name} {exception.Message}。");
         }
 
         var count = Interlocked.Exchange(ref suppressed, 0);
         if (count > 0)
-            diagnostics.WriteThrottled("iching-moving-cast", "移动读条", $"窗口内已拦截 {count} 个位置更新包。", TimeSpan.FromSeconds(10));
+            diagnostics.WriteThrottled("soumen-tools-moving-cast", "移动读条", $"窗口内已拦截 {count} 个位置更新包。", TimeSpan.FromSeconds(10));
     }
 
     private unsafe bool InterceptPacket(nint client, nint packet, uint third, uint fourth, bool priority)
     {
-        if (configuration.IChingMovingCast && packet != 0)
+        if (configuration.ToolMovingCast && packet != 0)
         {
             var player = Plugin.ObjectTable.LocalPlayer;
             if (player?.IsCasting == true)
             {
                 var remaining = player.TotalCastTime - player.CurrentCastTime;
-                if (remaining >= 0f && remaining <= configuration.IChingMovingCastWindow)
+                if (remaining >= 0f && remaining <= configuration.ToolMovingCastWindow)
                 {
                     var opcode = *(ushort*)packet;
                     if (opcode == normalOpcode || opcode == combatOpcode)

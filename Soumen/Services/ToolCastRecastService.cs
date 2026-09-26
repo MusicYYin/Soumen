@@ -6,7 +6,7 @@ using Dalamud.Plugin.Services;
 namespace Soumen.Services;
 
 /// <summary>Adjusts action cast and recast calculations on the captured client build.</summary>
-internal sealed unsafe class IChingCastRecastService : IDisposable
+internal sealed unsafe class ToolCastRecastService : IDisposable
 {
     private const string CastTimeCall = "E8 ?? ?? ?? ?? 45 ?? ?? 33 ?? 48 ?? ?? 66 ?? ?? ??";
     private const string CastProgressEntry = "48 89 5C 24 ?? 57 48 83 EC ?? 48 8B F9 0F 29 74 24 ?? 0F B6 49";
@@ -32,7 +32,7 @@ internal sealed unsafe class IChingCastRecastService : IDisposable
     private bool castFailed;
     private bool recastFailed;
 
-    public IChingCastRecastService(Configuration configuration, DiagnosticLogger diagnostics)
+    public ToolCastRecastService(Configuration configuration, DiagnosticLogger diagnostics)
     {
         this.configuration = configuration;
         this.diagnostics = diagnostics;
@@ -50,10 +50,10 @@ internal sealed unsafe class IChingCastRecastService : IDisposable
     private void Update(IFramework framework)
     {
         _ = framework;
-        var castRequested = configuration.IChingCastReduction
-            && !IChingOriginalHookGuard.Blocks("CastHook", true, diagnostics);
-        var recastRequested = configuration.IChingRecastReduction
-            && !IChingOriginalHookGuard.Blocks("RecastHook", true, diagnostics);
+        var castRequested = configuration.ToolCastReduction
+            && !ExternalHookGuard.Blocks("CastHook", true, diagnostics);
+        var recastRequested = configuration.ToolRecastReduction
+            && !ExternalHookGuard.Blocks("RecastHook", true, diagnostics);
 
         if (castRequested && castTime == null && !castFailed)
         {
@@ -106,24 +106,24 @@ internal sealed unsafe class IChingCastRecastService : IDisposable
     private void Switch<T>(Hook<T>? hook, bool enabled, string feature) where T : Delegate
     {
         if (hook == null || hook.IsEnabled == enabled) return;
-        if (enabled) { hook.Enable(); diagnostics.Write("I-Ching Hook", $"{feature}已接管。"); }
+        if (enabled) { hook.Enable(); diagnostics.Write("工具 Hook", $"{feature}已接管。"); }
         else hook.Disable();
     }
 
     private int ShortenCast(uint type, uint actionId, bool adjusted, byte* context)
     {
         var original = castTime!.Original(type, actionId, adjusted, context);
-        return configuration.IChingCastReduction && original > 0
-            ? Math.Max(0, original - (int)(configuration.IChingCastSeconds * 1000f))
+        return configuration.ToolCastReduction && original > 0
+            ? Math.Max(0, original - (int)(configuration.ToolCastSeconds * 1000f))
             : original;
     }
 
     private uint UpdateCastProgress(nint data, uint actionId, float progress, float total)
     {
-        if (configuration.IChingCastReduction && data != 0 && castProgressValue != null
+        if (configuration.ToolCastReduction && data != 0 && castProgressValue != null
             && *(uint*)(data + 4) == actionId)
         {
-            progress = MathF.Max(0f, progress - configuration.IChingCastSeconds);
+            progress = MathF.Max(0f, progress - configuration.ToolCastSeconds);
             *castProgressValue = progress;
         }
         return castProgress!.Original(data, actionId, progress, total);
@@ -132,14 +132,14 @@ internal sealed unsafe class IChingCastRecastService : IDisposable
     private long ShortenRecast(int type, int actionId, char variant)
     {
         var original = recastTime!.Original(type, actionId, variant);
-        return configuration.IChingRecastReduction && type == 1 && original > 0
-            ? Math.Max(0L, original - (long)(configuration.IChingRecastSeconds * 1000f))
+        return configuration.ToolRecastReduction && type == 1 && original > 0
+            ? Math.Max(0L, original - (long)(configuration.ToolRecastSeconds * 1000f))
             : original;
     }
 
     private void Report(string feature, Exception exception)
     {
-        diagnostics.Write("I-Ching Hook", $"{feature}不可用：{exception.GetType().Name}。");
-        Plugin.Log.Error(exception, $"I-Ching {feature} hook failed");
+        diagnostics.Write("工具 Hook", $"{feature}不可用：{exception.GetType().Name}。");
+        Plugin.Log.Error(exception, $"Soumen {feature} hook failed");
     }
 }

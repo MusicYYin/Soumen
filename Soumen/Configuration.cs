@@ -19,7 +19,10 @@ public sealed class Configuration : IPluginConfiguration
     [JsonIgnore]
     private IDalamudPluginInterface? pluginInterface;
 
-    public int Version { get; set; } = 16;
+    public int Version { get; set; } = 17;
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? PreviousSettings { get; set; }
 
     public AutomationTask ActiveTask { get; set; } = AutomationTask.None;
 
@@ -79,49 +82,49 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool CancelFishingAnimation { get; set; } = false;
 
-    public bool IChingSpeedEnabled { get; set; } = false;
+    public bool ToolSpeedEnabled { get; set; } = false;
 
-    public float IChingSpeedBonus { get; set; } = 0.2f;
+    public float ToolSpeedMultiplier { get; set; } = 1.2f;
 
-    public bool IChingMaxAcceleration { get; set; } = false;
+    public bool ToolMaxAcceleration { get; set; } = false;
 
-    public bool IChingNoFallDamage { get; set; } = false;
+    public bool ToolNoFallDamage { get; set; } = false;
 
-    public bool IChingForceMovement { get; set; } = false;
+    public bool ToolForceMovement { get; set; } = false;
 
-    public bool IChingAntiKnockback { get; set; } = false;
+    public bool ToolAntiKnockback { get; set; } = false;
 
-    public bool IChingNoDrop { get; set; } = false;
+    public bool ToolNoDrop { get; set; } = false;
 
-    public bool IChingIgnoreCharm { get; set; } = false;
+    public bool ToolIgnoreCharm { get; set; } = false;
 
-    public bool IChingStatusBlock { get; set; } = false;
+    public bool ToolStatusBlock { get; set; } = false;
 
-    public bool IChingVerticalMovement { get; set; } = false;
+    public bool ToolVerticalMovement { get; set; } = false;
 
-    public float IChingVerticalOffset { get; set; } = 0f;
+    public float ToolVerticalOffset { get; set; } = 0f;
 
-    public bool IChingMovingCast { get; set; } = false;
+    public bool ToolMovingCast { get; set; } = false;
 
-    public float IChingMovingCastWindow { get; set; } = 0.3f;
+    public float ToolMovingCastWindow { get; set; } = 0.3f;
 
-    public bool IChingActionRangeEnabled { get; set; } = false;
+    public bool ToolActionRangeEnabled { get; set; } = false;
 
-    public float IChingActionRangeBonus { get; set; } = 2f;
+    public float ToolActionRangeBonus { get; set; } = 2f;
 
-    public bool IChingTargetRadiusEnabled { get; set; } = false;
+    public bool ToolTargetRadiusEnabled { get; set; } = false;
 
-    public bool IChingNoActionMove { get; set; } = false;
+    public bool ToolNoActionMove { get; set; } = false;
 
-    public float IChingTargetRadius { get; set; } = 2f;
+    public float ToolTargetRadius { get; set; } = 2f;
 
-    public bool IChingRecastReduction { get; set; } = false;
+    public bool ToolRecastReduction { get; set; } = false;
 
-    public float IChingRecastSeconds { get; set; } = 0.3f;
+    public float ToolRecastSeconds { get; set; } = 0.3f;
 
-    public bool IChingCastReduction { get; set; } = false;
+    public bool ToolCastReduction { get; set; } = false;
 
-    public float IChingCastSeconds { get; set; } = 0.3f;
+    public float ToolCastSeconds { get; set; } = 0.3f;
 
     public bool TeleportWhenStuck { get; set; } = true;
 
@@ -157,6 +160,7 @@ public sealed class Configuration : IPluginConfiguration
             {
                 configuration = JsonSerializer.Deserialize<Configuration>(File.ReadAllText(path), SerializerOptions)
                     ?? new Configuration();
+                configuration.MigratePreviousToolSettings();
             }
             catch (Exception exception)
             {
@@ -219,16 +223,49 @@ public sealed class Configuration : IPluginConfiguration
         configuration.TreasureSpotCorrectionRange = Math.Clamp(configuration.TreasureSpotCorrectionRange, 0f, 150f);
         configuration.DungeonFollowDistance = Math.Clamp(configuration.DungeonFollowDistance, 1.5f, 12f);
         configuration.FrontlineRadarRange = Math.Clamp(configuration.FrontlineRadarRange, 20f, 200f);
-        configuration.IChingSpeedBonus = Math.Clamp(configuration.IChingSpeedBonus, 0f, 2f);
-        configuration.IChingActionRangeBonus = Math.Clamp(configuration.IChingActionRangeBonus, 0f, 2f);
-        configuration.IChingTargetRadius = Math.Clamp(configuration.IChingTargetRadius, 0f, 5f);
-        configuration.IChingRecastSeconds = Math.Clamp(configuration.IChingRecastSeconds, 0f, 1f);
-        configuration.IChingCastSeconds = Math.Clamp(configuration.IChingCastSeconds, 0f, 1f);
-        configuration.IChingVerticalOffset = Math.Clamp(configuration.IChingVerticalOffset, -10f, 10f);
-        configuration.IChingMovingCastWindow = Math.Clamp(configuration.IChingMovingCastWindow, 0f, 1f);
-        configuration.Version = 16;
+        configuration.ToolSpeedMultiplier = Math.Clamp(configuration.ToolSpeedMultiplier, 1f, 5f);
+        configuration.ToolActionRangeBonus = Math.Clamp(configuration.ToolActionRangeBonus, 0f, 2f);
+        configuration.ToolTargetRadius = Math.Clamp(configuration.ToolTargetRadius, 0f, 5f);
+        configuration.ToolRecastSeconds = Math.Clamp(configuration.ToolRecastSeconds, 0f, 1f);
+        configuration.ToolCastSeconds = Math.Clamp(configuration.ToolCastSeconds, 0f, 1f);
+        configuration.ToolVerticalOffset = Math.Clamp(configuration.ToolVerticalOffset, -10f, 10f);
+        configuration.ToolMovingCastWindow = Math.Clamp(configuration.ToolMovingCastWindow, 0f, 1f);
+        configuration.Version = 17;
         configuration.Save();
         return configuration;
+    }
+
+    private void MigratePreviousToolSettings()
+    {
+        if (Version >= 17 || PreviousSettings == null) return;
+
+        // Older tool settings used a six-character prefix. Match by option suffix
+        // so saved switches survive the rename without keeping the old name in Soumen.
+        foreach (var property in typeof(Configuration).GetProperties()
+                     .Where(property => property.Name.StartsWith("Tool", StringComparison.Ordinal)))
+        {
+            if (property.Name == nameof(ToolSpeedMultiplier)) continue;
+            var suffix = property.Name[4..];
+            var old = PreviousSettings.FirstOrDefault(pair =>
+                pair.Key.Length == suffix.Length + 6 && pair.Key.EndsWith(suffix, StringComparison.Ordinal));
+            if (old.Key == null) continue;
+            try
+            {
+                if (property.PropertyType == typeof(bool)) property.SetValue(this, old.Value.GetBoolean());
+                else if (property.PropertyType == typeof(float)) property.SetValue(this, old.Value.GetSingle());
+            }
+            catch (Exception exception) { Plugin.Log.Warning(exception, $"Could not migrate tool option {suffix}"); }
+        }
+
+        var previousSpeed = PreviousSettings.FirstOrDefault(pair =>
+            pair.Key.Length == "SpeedBonus".Length + 6
+            && pair.Key.EndsWith("SpeedBonus", StringComparison.Ordinal));
+        if (previousSpeed.Key != null)
+        {
+            try { ToolSpeedMultiplier = 1f + previousSpeed.Value.GetSingle(); }
+            catch (Exception exception) { Plugin.Log.Warning(exception, "Could not migrate movement speed"); }
+        }
+        PreviousSettings.Clear();
     }
 
     [JsonIgnore]

@@ -5,8 +5,8 @@ using ActionRow = Lumina.Excel.Sheets.Action;
 
 namespace Soumen.Services;
 
-/// <summary>Combat hooks whose original detour behavior has been confirmed in the 0.1.6.6 assembly.</summary>
-internal sealed class IChingCombatService : IDisposable
+/// <summary>Combat hooks whose native entrypoints were checked against a running client snapshot.</summary>
+internal sealed class ToolCombatService : IDisposable
 {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint NoBackswingDelegate(nint value);
@@ -31,7 +31,7 @@ internal sealed class IChingCombatService : IDisposable
     private bool radiusFailed;
     private bool noActionMoveFailed;
 
-    public IChingCombatService(Configuration configuration, DiagnosticLogger diagnostics)
+    public ToolCombatService(Configuration configuration, DiagnosticLogger diagnostics)
     {
         this.configuration = configuration;
         this.diagnostics = diagnostics;
@@ -50,7 +50,7 @@ internal sealed class IChingCombatService : IDisposable
     private void OnFrameworkUpdate(IFramework framework)
     {
         _ = framework;
-        if (!configuration.NoBackswingMovement || IChingOriginalHookGuard.Blocks("NoBackswingHook", configuration.NoBackswingMovement, diagnostics))
+        if (!configuration.NoBackswingMovement || ExternalHookGuard.Blocks("NoBackswingHook", configuration.NoBackswingMovement, diagnostics))
         {
             if (noBackswing?.IsEnabled == true) noBackswing.Disable();
         }
@@ -60,11 +60,11 @@ internal sealed class IChingCombatService : IDisposable
             {
                 if (noBackswing == null)
                 {
-                    var address = IChingHookAddresses.Resolve("_NoBackswingHook", diagnostics);
+                    var address = ToolHookAddresses.Resolve("_NoBackswingHook", diagnostics);
                     if (address == 0) backswingFailed = true;
                     else noBackswing = Plugin.GameInteropProvider.HookFromAddress<NoBackswingDelegate>(address, OnNoBackswing);
                 }
-                if (noBackswing?.IsEnabled == false) { noBackswing.Enable(); diagnostics.Write("I-Ching Hook", "后摇可移动已接管。"); }
+                if (noBackswing?.IsEnabled == false) { noBackswing.Enable(); diagnostics.Write("工具 Hook", "后摇可移动已接管。"); }
             }
             catch (Exception exception)
             {
@@ -73,7 +73,7 @@ internal sealed class IChingCombatService : IDisposable
             }
         }
 
-        if (!configuration.IChingActionRangeEnabled || IChingOriginalHookGuard.Blocks("ActionRangeHook", configuration.IChingActionRangeEnabled, diagnostics))
+        if (!configuration.ToolActionRangeEnabled || ExternalHookGuard.Blocks("ActionRangeHook", configuration.ToolActionRangeEnabled, diagnostics))
         {
             if (actionRange?.IsEnabled == true) actionRange.Disable();
         }
@@ -83,11 +83,11 @@ internal sealed class IChingCombatService : IDisposable
             {
                 if (actionRange == null)
                 {
-                    var address = IChingHookAddresses.Resolve("_ActionRangeHook", diagnostics);
+                    var address = ToolHookAddresses.Resolve("_ActionRangeHook", diagnostics);
                     if (address == 0) rangeFailed = true;
                     else actionRange = Plugin.GameInteropProvider.HookFromAddress<GetActionRangeDelegate>(address, GetActionRange);
                 }
-                if (actionRange?.IsEnabled == false) { actionRange.Enable(); diagnostics.Write("I-Ching Hook", "技能距离已接管。"); }
+                if (actionRange?.IsEnabled == false) { actionRange.Enable(); diagnostics.Write("工具 Hook", "技能距离已接管。"); }
             }
             catch (Exception exception)
             {
@@ -96,7 +96,7 @@ internal sealed class IChingCombatService : IDisposable
             }
         }
 
-        if (!configuration.IChingTargetRadiusEnabled || IChingOriginalHookGuard.Blocks("ActorRadiusHook", configuration.IChingTargetRadiusEnabled, diagnostics))
+        if (!configuration.ToolTargetRadiusEnabled || ExternalHookGuard.Blocks("ActorRadiusHook", configuration.ToolTargetRadiusEnabled, diagnostics))
         {
             if (actorRadius?.IsEnabled == true) actorRadius.Disable();
         }
@@ -106,11 +106,11 @@ internal sealed class IChingCombatService : IDisposable
             {
                 if (actorRadius == null)
                 {
-                    var address = IChingHookAddresses.Resolve("_ActorRadiusHook", diagnostics);
+                    var address = ToolHookAddresses.Resolve("_ActorRadiusHook", diagnostics);
                     if (address == 0) radiusFailed = true;
                     else actorRadius = Plugin.GameInteropProvider.HookFromAddress<GetActorRadiusDelegate>(address, GetRadius);
                 }
-                if (actorRadius?.IsEnabled == false) { actorRadius.Enable(); diagnostics.Write("I-Ching Hook", "目标圈大小已接管。"); }
+                if (actorRadius?.IsEnabled == false) { actorRadius.Enable(); diagnostics.Write("工具 Hook", "目标圈大小已接管。"); }
             }
             catch (Exception exception)
             {
@@ -119,7 +119,7 @@ internal sealed class IChingCombatService : IDisposable
             }
         }
 
-        if (!configuration.IChingNoActionMove || IChingOriginalHookGuard.Blocks("NoActionMoveHook", configuration.IChingNoActionMove, diagnostics))
+        if (!configuration.ToolNoActionMove || ExternalHookGuard.Blocks("NoActionMoveHook", configuration.ToolNoActionMove, diagnostics))
         {
             if (noActionMove?.IsEnabled == true) noActionMove.Disable();
         }
@@ -129,11 +129,11 @@ internal sealed class IChingCombatService : IDisposable
             {
                 if (noActionMove == null)
                 {
-                    var address = IChingHookAddresses.Resolve("_NoActionMoveHook", diagnostics);
+                    var address = ToolHookAddresses.Resolve("_NoActionMoveHook", diagnostics);
                     if (address == 0) noActionMoveFailed = true;
                     else noActionMove = Plugin.GameInteropProvider.HookFromAddress<NoActionMoveDelegate>(address, PreventActionMovement);
                 }
-                if (noActionMove?.IsEnabled == false) { noActionMove.Enable(); diagnostics.Write("I-Ching Hook", "突进无位移已接管。"); }
+                if (noActionMove?.IsEnabled == false) { noActionMove.Enable(); diagnostics.Write("工具 Hook", "突进无位移已接管。"); }
             }
             catch (Exception exception)
             {
@@ -146,19 +146,19 @@ internal sealed class IChingCombatService : IDisposable
     private float GetActionRange(uint actionId)
     {
         var original = actionRange!.Original(actionId);
-        if (!configuration.IChingActionRangeEnabled || actionId == 0 || original <= 0f)
+        if (!configuration.ToolActionRangeEnabled || actionId == 0 || original <= 0f)
             return original;
         var sheet = Plugin.DataManager.GetExcelSheet<ActionRow>();
         if (sheet == null || !sheet.TryGetRow(actionId, out var action) || action.TargetArea)
             return original;
-        return original + configuration.IChingActionRangeBonus;
+        return original + configuration.ToolActionRangeBonus;
     }
 
     private float GetRadius(nuint actor, byte kind)
     {
         var original = actorRadius!.Original(actor, kind);
-        return configuration.IChingTargetRadiusEnabled
-            ? MathF.Max(original, configuration.IChingTargetRadius)
+        return configuration.ToolTargetRadiusEnabled
+            ? MathF.Max(original, configuration.ToolTargetRadius)
             : original;
     }
 
@@ -166,18 +166,18 @@ internal sealed class IChingCombatService : IDisposable
     {
         // The second argument selects an ActionTimelineMove row. Zero means no action movement;
         // the original game routine applies the displacement for nonzero movement types.
-        if (configuration.IChingNoActionMove && moveId != 0)
+        if (configuration.ToolNoActionMove && moveId != 0)
             return 0;
         return noActionMove!.Original(actor, moveId, target, facing, timeline);
     }
 
     private void ReportFailure(string feature, Exception exception)
     {
-        diagnostics.Write("I-Ching Hook", $"{feature}安装失败：{exception.GetType().Name}。");
+        diagnostics.Write("工具 Hook", $"{feature}安装失败：{exception.GetType().Name}。");
         Plugin.Log.Error(exception, $"{feature} hook failed");
     }
 
-    // The 0.1.6.6 NoBackswingDetour takes one pointer, makes no external calls,
+    // The captured NoBackswing detour takes one pointer, makes no external calls,
     // and returns that same pointer. Its native original must not be called while enabled.
     private static nint OnNoBackswing(nint value) => value;
 }

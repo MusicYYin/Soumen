@@ -35,7 +35,9 @@ public sealed class MainWindow : Window
     private bool presetRenameOpen;
     private string includePresetId = string.Empty;
     private bool confirmStatisticsReset;
-    private string iChingProbeResult = string.Empty;
+    private string hookSnapshotResult = string.Empty;
+    private string hookSnapshotAssembly = string.Empty;
+    private IReadOnlyList<string>? hookSnapshotCandidates;
     private Vector3 lastSpeedPosition;
     private DateTime lastSpeedSampleUtc = DateTime.MinValue;
     private uint lastSpeedTerritory;
@@ -665,138 +667,194 @@ public sealed class MainWindow : Window
     {
         ImGui.Spacing();
         DrawSectionTitle("工具");
-        if (ImGui.CollapsingHeader("移动相关", ImGuiTreeNodeFlags.DefaultOpen))
+        ImGui.TextColored(Muted, "开关和参数自动保存，下次进入游戏会恢复上次的设置。");
+        ImGui.Spacing();
+        if (!ImGui.BeginTabBar("##SoumenToolTabs")) return;
+
+        if (ImGui.BeginTabItem("移动"))
         {
-            DrawCheckbox("移速", nameof(configuration.IChingSpeedEnabled),
-                configuration.IChingSpeedEnabled, value => configuration.IChingSpeedEnabled = value);
-            if (configuration.IChingSpeedEnabled)
+            ImGui.Spacing();
+            if (ImGui.BeginTable("##ToolMovementColumns", 2, ImGuiTableFlags.SizingStretchSame))
             {
-                var speed = configuration.IChingSpeedBonus;
-                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
-                if (ImGui.SliderFloat("移速增加量", ref speed, 0f, 2f, "+%.1f y/s"))
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                DrawToolPanel("ToolMotionPanel", "速度与位移", "调整移动速度与动作限制", 350f, () =>
                 {
-                    configuration.IChingSpeedBonus = speed;
-                    configuration.Save();
-                }
-            }
-            DrawCheckbox("最大加速度", nameof(configuration.IChingMaxAcceleration),
-                configuration.IChingMaxAcceleration, value => configuration.IChingMaxAcceleration = value);
-            DrawCheckbox("强制移动", nameof(configuration.IChingForceMovement),
-                configuration.IChingForceMovement, value => configuration.IChingForceMovement = value);
-            DrawCheckbox("防击退", nameof(configuration.IChingAntiKnockback),
-                configuration.IChingAntiKnockback, value => configuration.IChingAntiKnockback = value);
-            DrawCheckbox("掉落无伤", nameof(configuration.IChingNoFallDamage),
-                configuration.IChingNoFallDamage, value => configuration.IChingNoFallDamage = value);
-            DrawCheckbox("飞天遁地", nameof(configuration.IChingVerticalMovement),
-                configuration.IChingVerticalMovement, value => configuration.IChingVerticalMovement = value);
-            if (configuration.IChingVerticalMovement)
-            {
-                var height = configuration.IChingVerticalOffset;
-                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
-                if (ImGui.SliderFloat("高度偏移", ref height, -10f, 10f, "%+.1f y"))
+                    DrawCheckbox("移速", nameof(configuration.ToolSpeedEnabled), configuration.ToolSpeedEnabled,
+                        value => configuration.ToolSpeedEnabled = value);
+                    ImGui.BeginDisabled(!configuration.ToolSpeedEnabled);
+                    var multiplier = configuration.ToolSpeedMultiplier;
+                    ImGui.SetNextItemWidth(-1f);
+                    if (ImGui.SliderFloat("移速倍率##ToolSpeed", ref multiplier, 1f, 5f, "×%.1f"))
+                    {
+                        configuration.ToolSpeedMultiplier = MathF.Round(multiplier, 1);
+                        configuration.Save();
+                    }
+                    ImGui.EndDisabled();
+                    ImGui.Spacing();
+                    DrawCheckbox("最大加速度", nameof(configuration.ToolMaxAcceleration), configuration.ToolMaxAcceleration,
+                        value => configuration.ToolMaxAcceleration = value);
+                    DrawCheckbox("强制移动", nameof(configuration.ToolForceMovement), configuration.ToolForceMovement,
+                        value => configuration.ToolForceMovement = value);
+                    DrawCheckbox("飞天遁地", nameof(configuration.ToolVerticalMovement), configuration.ToolVerticalMovement,
+                        value => configuration.ToolVerticalMovement = value);
+                    ImGui.BeginDisabled(!configuration.ToolVerticalMovement);
+                    var height = configuration.ToolVerticalOffset;
+                    ImGui.SetNextItemWidth(-1f);
+                    if (ImGui.SliderFloat("高度偏移##ToolHeight", ref height, -10f, 10f, "%+.1f y"))
+                    {
+                        configuration.ToolVerticalOffset = height;
+                        configuration.Save();
+                    }
+                    ImGui.EndDisabled();
+                    DrawCheckbox("移动读条", nameof(configuration.ToolMovingCast), configuration.ToolMovingCast,
+                        value => configuration.ToolMovingCast = value);
+                    ImGui.BeginDisabled(!configuration.ToolMovingCast);
+                    var window = configuration.ToolMovingCastWindow;
+                    ImGui.SetNextItemWidth(-1f);
+                    if (ImGui.SliderFloat("移动读条窗口##ToolCastWindow", ref window, 0f, 1f, "%.2f s"))
+                    {
+                        configuration.ToolMovingCastWindow = window;
+                        configuration.Save();
+                    }
+                    ImGui.EndDisabled();
+                });
+                ImGui.TableNextColumn();
+                DrawToolPanel("ToolProtectionPanel", "防护与状态", "按需开启独立功能", 350f, () =>
                 {
-                    configuration.IChingVerticalOffset = height;
-                    configuration.Save();
-                }
+                    DrawCheckbox("防击退", nameof(configuration.ToolAntiKnockback), configuration.ToolAntiKnockback,
+                        value => configuration.ToolAntiKnockback = value);
+                    DrawCheckbox("掉落无伤", nameof(configuration.ToolNoFallDamage), configuration.ToolNoFallDamage,
+                        value => configuration.ToolNoFallDamage = value);
+                    DrawCheckbox("无掉落", nameof(configuration.ToolNoDrop), configuration.ToolNoDrop,
+                        value => configuration.ToolNoDrop = value);
+                    DrawCheckbox("无视魅惑恐惧", nameof(configuration.ToolIgnoreCharm), configuration.ToolIgnoreCharm,
+                        value => configuration.ToolIgnoreCharm = value);
+                    DrawCheckbox("状态屏蔽（滑冰）", nameof(configuration.ToolStatusBlock), configuration.ToolStatusBlock,
+                        value => configuration.ToolStatusBlock = value);
+                });
+                ImGui.EndTable();
             }
-            DrawCheckbox("无掉落", nameof(configuration.IChingNoDrop),
-                configuration.IChingNoDrop, value => configuration.IChingNoDrop = value);
-            DrawCheckbox("无视魅惑恐惧", nameof(configuration.IChingIgnoreCharm),
-                configuration.IChingIgnoreCharm, value => configuration.IChingIgnoreCharm = value);
-            DrawCheckbox("状态屏蔽（滑冰）", nameof(configuration.IChingStatusBlock),
-                configuration.IChingStatusBlock, value => configuration.IChingStatusBlock = value);
-            DrawCheckbox("移动读条", nameof(configuration.IChingMovingCast),
-                configuration.IChingMovingCast, value => configuration.IChingMovingCast = value);
-            if (configuration.IChingMovingCast)
-            {
-                var window = configuration.IChingMovingCastWindow;
-                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
-                if (ImGui.SliderFloat("移动读条窗口", ref window, 0f, 1f, "%.2f s"))
-                {
-                    configuration.IChingMovingCastWindow = window;
-                    configuration.Save();
-                }
-            }
+            ImGui.EndTabItem();
         }
-        if (ImGui.CollapsingHeader("战斗相关", ImGuiTreeNodeFlags.DefaultOpen))
+        if (ImGui.BeginTabItem("战斗"))
         {
-            DrawCheckbox("技能距离", nameof(configuration.IChingActionRangeEnabled),
-                configuration.IChingActionRangeEnabled, value => configuration.IChingActionRangeEnabled = value);
-            if (configuration.IChingActionRangeEnabled)
+            ImGui.Spacing();
+            if (ImGui.BeginTable("##ToolCombatColumns", 2, ImGuiTableFlags.SizingStretchSame))
             {
-                var rangeBonus = configuration.IChingActionRangeBonus;
-                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
-                if (ImGui.SliderFloat("技能距离增加量", ref rangeBonus, 0f, 2f, "+%.1f y"))
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                DrawToolPanel("ToolCombatRangePanel", "距离与动作", "技能距离和动作表现", 320f, () =>
                 {
-                    configuration.IChingActionRangeBonus = rangeBonus;
-                    configuration.Save();
-                }
-            }
-            DrawCheckbox("目标圈大小", nameof(configuration.IChingTargetRadiusEnabled),
-                configuration.IChingTargetRadiusEnabled, value => configuration.IChingTargetRadiusEnabled = value);
-            if (configuration.IChingTargetRadiusEnabled)
-            {
-                var radius = configuration.IChingTargetRadius;
-                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
-                if (ImGui.SliderFloat("目标圈最小半径", ref radius, 0f, 5f, "%.1f y"))
+                    DrawCheckbox("技能距离", nameof(configuration.ToolActionRangeEnabled), configuration.ToolActionRangeEnabled,
+                        value => configuration.ToolActionRangeEnabled = value);
+                    ImGui.BeginDisabled(!configuration.ToolActionRangeEnabled);
+                    var bonus = configuration.ToolActionRangeBonus;
+                    ImGui.SetNextItemWidth(-1f);
+                    if (ImGui.SliderFloat("技能距离增加量##ToolRange", ref bonus, 0f, 2f, "+%.1f y"))
+                    {
+                        configuration.ToolActionRangeBonus = bonus;
+                        configuration.Save();
+                    }
+                    ImGui.EndDisabled();
+                    DrawCheckbox("目标圈大小", nameof(configuration.ToolTargetRadiusEnabled), configuration.ToolTargetRadiusEnabled,
+                        value => configuration.ToolTargetRadiusEnabled = value);
+                    ImGui.BeginDisabled(!configuration.ToolTargetRadiusEnabled);
+                    var radius = configuration.ToolTargetRadius;
+                    ImGui.SetNextItemWidth(-1f);
+                    if (ImGui.SliderFloat("目标圈最小半径##ToolRadius", ref radius, 0f, 5f, "%.1f y"))
+                    {
+                        configuration.ToolTargetRadius = radius;
+                        configuration.Save();
+                    }
+                    ImGui.EndDisabled();
+                    DrawCheckbox("后摇可移动", nameof(configuration.NoBackswingMovement), configuration.NoBackswingMovement,
+                        value => configuration.NoBackswingMovement = value);
+                    DrawCheckbox("突进无位移", nameof(configuration.ToolNoActionMove), configuration.ToolNoActionMove,
+                        value => configuration.ToolNoActionMove = value);
+                });
+                ImGui.TableNextColumn();
+                DrawToolPanel("ToolCombatTimingPanel", "技能计时", "以秒为单位调整咏唱与复唱", 320f, () =>
                 {
-                    configuration.IChingTargetRadius = radius;
-                    configuration.Save();
-                }
+                    DrawCheckbox("复唱缩减", nameof(configuration.ToolRecastReduction), configuration.ToolRecastReduction,
+                        value => configuration.ToolRecastReduction = value);
+                    ImGui.BeginDisabled(!configuration.ToolRecastReduction);
+                    var recast = configuration.ToolRecastSeconds;
+                    ImGui.SetNextItemWidth(-1f);
+                    if (ImGui.SliderFloat("复唱缩减时间##ToolRecast", ref recast, 0f, 1f, "%.2f s"))
+                    {
+                        configuration.ToolRecastSeconds = recast;
+                        configuration.Save();
+                    }
+                    ImGui.EndDisabled();
+                    DrawCheckbox("咏唱缩减", nameof(configuration.ToolCastReduction), configuration.ToolCastReduction,
+                        value => configuration.ToolCastReduction = value);
+                    ImGui.BeginDisabled(!configuration.ToolCastReduction);
+                    var cast = configuration.ToolCastSeconds;
+                    ImGui.SetNextItemWidth(-1f);
+                    if (ImGui.SliderFloat("咏唱缩减时间##ToolCast", ref cast, 0f, 1f, "%.2f s"))
+                    {
+                        configuration.ToolCastSeconds = cast;
+                        configuration.Save();
+                    }
+                    ImGui.EndDisabled();
+                });
+                ImGui.EndTable();
             }
-            DrawCheckbox("后摇可移动", nameof(configuration.NoBackswingMovement),
-                configuration.NoBackswingMovement, value => configuration.NoBackswingMovement = value);
-            DrawCheckbox("突进无位移", nameof(configuration.IChingNoActionMove),
-                configuration.IChingNoActionMove, value => configuration.IChingNoActionMove = value);
-            DrawCheckbox("复唱缩减", nameof(configuration.IChingRecastReduction),
-                configuration.IChingRecastReduction, value => configuration.IChingRecastReduction = value);
-            if (configuration.IChingRecastReduction)
-            {
-                var recast = configuration.IChingRecastSeconds;
-                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
-                if (ImGui.SliderFloat("复唱缩减时间", ref recast, 0f, 1f, "%.2f s"))
-                {
-                    configuration.IChingRecastSeconds = recast;
-                    configuration.Save();
-                }
-            }
-            DrawCheckbox("咏唱缩减", nameof(configuration.IChingCastReduction),
-                configuration.IChingCastReduction, value => configuration.IChingCastReduction = value);
-            if (configuration.IChingCastReduction)
-            {
-                var cast = configuration.IChingCastSeconds;
-                ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
-                if (ImGui.SliderFloat("咏唱缩减时间", ref cast, 0f, 1f, "%.2f s"))
-                {
-                    configuration.IChingCastSeconds = cast;
-                    configuration.Save();
-                }
-            }
+            ImGui.EndTabItem();
         }
-        if (ImGui.CollapsingHeader("功能相关", ImGuiTreeNodeFlags.DefaultOpen))
+        if (ImGui.BeginTabItem("便利"))
         {
-            DrawCheckbox("取消钓鱼动画", nameof(configuration.CancelFishingAnimation),
-                configuration.CancelFishingAnimation, value => configuration.CancelFishingAnimation = value);
-        }
-        if (ImGui.CollapsingHeader("战场透视", ImGuiTreeNodeFlags.DefaultOpen))
-        {
-            DrawCheckbox("启用战场透视", nameof(configuration.FrontlineRadarEnabled),
-                configuration.FrontlineRadarEnabled, value => configuration.FrontlineRadarEnabled = value);
-            var range = configuration.FrontlineRadarRange;
-            ImGui.SetNextItemWidth(250f * ImGuiHelpers.GlobalScale);
-            if (ImGui.SliderFloat("探测距离", ref range, 20f, 200f, "%.0f y"))
+            ImGui.Spacing();
+            DrawToolPanel("ToolFishingPanel", "钓鱼", "省去钓鱼动作的播放等待", 135f, () =>
             {
-                configuration.FrontlineRadarRange = range;
-                configuration.Save();
-            }
-            DrawCheckbox("显示透视线", nameof(configuration.FrontlineRadarLines),
-                configuration.FrontlineRadarLines, value => configuration.FrontlineRadarLines = value);
-            DrawCheckbox("显示职业图标", nameof(configuration.FrontlineRadarJobIcons),
-                configuration.FrontlineRadarJobIcons, value => configuration.FrontlineRadarJobIcons = value);
-            DrawCheckbox("显示战意图标", nameof(configuration.FrontlineRadarBattleHighIcons),
-                configuration.FrontlineRadarBattleHighIcons, value => configuration.FrontlineRadarBattleHighIcons = value);
-            ImGui.TextColored(Muted, "在 PvP 区域显示已加载的敌方玩家。");
+                DrawCheckbox("取消钓鱼动画", nameof(configuration.CancelFishingAnimation),
+                    configuration.CancelFishingAnimation, value => configuration.CancelFishingAnimation = value);
+            });
+            ImGui.EndTabItem();
         }
+        if (ImGui.BeginTabItem("战场"))
+        {
+            ImGui.Spacing();
+            DrawToolPanel("ToolFrontlinePanel", "战场透视", "仅在 PvP 区域绘制已加载的敌方玩家", 290f, () =>
+            {
+                DrawCheckbox("启用战场透视", nameof(configuration.FrontlineRadarEnabled),
+                    configuration.FrontlineRadarEnabled, value => configuration.FrontlineRadarEnabled = value);
+                ImGui.BeginDisabled(!configuration.FrontlineRadarEnabled);
+                var range = configuration.FrontlineRadarRange;
+                ImGui.SetNextItemWidth(280f * ImGuiHelpers.GlobalScale);
+                if (ImGui.SliderFloat("探测距离##ToolRadarRange", ref range, 20f, 200f, "%.0f y"))
+                {
+                    configuration.FrontlineRadarRange = range;
+                    configuration.Save();
+                }
+                DrawCheckbox("显示透视线", nameof(configuration.FrontlineRadarLines),
+                    configuration.FrontlineRadarLines, value => configuration.FrontlineRadarLines = value);
+                DrawCheckbox("显示职业图标", nameof(configuration.FrontlineRadarJobIcons),
+                    configuration.FrontlineRadarJobIcons, value => configuration.FrontlineRadarJobIcons = value);
+                DrawCheckbox("显示战意图标", nameof(configuration.FrontlineRadarBattleHighIcons),
+                    configuration.FrontlineRadarBattleHighIcons, value => configuration.FrontlineRadarBattleHighIcons = value);
+                ImGui.EndDisabled();
+            });
+            ImGui.EndTabItem();
+        }
+        ImGui.EndTabBar();
+    }
+
+    private void DrawToolPanel(string id, string title, string description, float height, Action content)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 9f * scale);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, Panel);
+        ImGui.BeginChild($"##{id}", new Vector2(0f, height * scale), true);
+        ImGui.TextColored(Accent, title);
+        ImGui.TextColored(Muted, description);
+        ImGui.Separator();
+        ImGui.Spacing();
+        content();
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
+        ImGui.PopStyleVar();
     }
 
     private void DrawAbout()
@@ -867,13 +925,26 @@ public sealed class MainWindow : Window
             }
             ImGui.TextWrapped(leaderAutomation.DeveloperTestResult);
             ImGui.Separator();
-            ImGui.TextColored(Muted, "一次性采集运行中的 I-Ching Hook 入口、签名和钓鱼动画路径。");
-            ImGui.BeginDisabled(!configuration.DiagnosticMode);
-            if (ImGui.Button("采集 I-Ching Hook 快照"))
-                iChingProbeResult = IChingHookProbe.Capture(diagnostics);
+            ImGui.TextColored(Muted, "选择已加载的插件，采集其原生 Hook 地址、签名与启用状态。");
+            hookSnapshotCandidates ??= NativeHookInspector.GetCandidates();
+            ImGui.SetNextItemWidth(245f * ImGuiHelpers.GlobalScale);
+            if (ImGui.BeginCombo("程序集##HookSnapshotAssembly",
+                    string.IsNullOrEmpty(hookSnapshotAssembly) ? "请选择插件" : hookSnapshotAssembly))
+            {
+                foreach (var name in hookSnapshotCandidates)
+                {
+                    if (ImGui.Selectable(name, name == hookSnapshotAssembly)) hookSnapshotAssembly = name;
+                }
+                ImGui.EndCombo();
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("刷新插件列表")) hookSnapshotCandidates = NativeHookInspector.GetCandidates();
+            ImGui.BeginDisabled(!configuration.DiagnosticMode || string.IsNullOrEmpty(hookSnapshotAssembly));
+            if (ImGui.Button("采集 Hook 快照"))
+                hookSnapshotResult = NativeHookInspector.Capture(diagnostics, hookSnapshotAssembly);
             ImGui.EndDisabled();
-            if (!string.IsNullOrEmpty(iChingProbeResult))
-                ImGui.TextWrapped(iChingProbeResult);
+            if (!string.IsNullOrEmpty(hookSnapshotResult))
+                ImGui.TextWrapped(hookSnapshotResult);
         }
     }
 
@@ -1516,7 +1587,7 @@ public sealed class MainWindow : Window
         {
             update(value);
             configuration.Save();
-            if (id.StartsWith("IChing", StringComparison.Ordinal)
+            if (id.StartsWith("Tool", StringComparison.Ordinal)
                 || id.StartsWith("FrontlineRadar", StringComparison.Ordinal)
                 || id is nameof(Configuration.NoBackswingMovement) or nameof(Configuration.CancelFishingAnimation))
                 diagnostics.Write("工具开关", $"{label}：{(value ? "开启" : "关闭")}。");

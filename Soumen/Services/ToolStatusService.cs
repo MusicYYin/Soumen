@@ -8,7 +8,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.Object;
 namespace Soumen.Services;
 
 /// <summary>Filters local movement restrictions at their native action and status entrypoints.</summary>
-internal sealed unsafe class IChingStatusService : IDisposable
+internal sealed unsafe class ToolStatusService : IDisposable
 {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint ForcedActionDelegate(GameObject* actor, float x, float y, float z, int fifth, nint sixth);
@@ -37,7 +37,7 @@ internal sealed unsafe class IChingStatusService : IDisposable
     private bool updateFailed;
     private bool packetFailed;
 
-    public IChingStatusService(Configuration configuration, DiagnosticLogger diagnostics)
+    public ToolStatusService(Configuration configuration, DiagnosticLogger diagnostics)
     {
         this.configuration = configuration;
         this.diagnostics = diagnostics;
@@ -55,14 +55,14 @@ internal sealed unsafe class IChingStatusService : IDisposable
     private void Update(IFramework framework)
     {
         _ = framework;
-        var blocked = IChingOriginalHookGuard.Blocks("StatusCheck",
-            configuration.IChingIgnoreCharm || configuration.IChingStatusBlock, diagnostics);
+        var blocked = ExternalHookGuard.Blocks("StatusCheck",
+            configuration.ToolIgnoreCharm || configuration.ToolStatusBlock, diagnostics);
 
-        Sync(ref forcedAction, ref forcedFailed, configuration.IChingIgnoreCharm && !blocked,
+        Sync(ref forcedAction, ref forcedFailed, configuration.ToolIgnoreCharm && !blocked,
             "noBewitchActionHook", new ForcedActionDelegate(InterceptForcedAction));
-        Sync(ref statusUpdate, ref updateFailed, configuration.IChingStatusBlock && !blocked,
+        Sync(ref statusUpdate, ref updateFailed, configuration.ToolStatusBlock && !blocked,
             "_StatusCheckHook", new StatusUpdateDelegate(FilterStatusManager));
-        Sync(ref statusPacket, ref packetFailed, configuration.IChingStatusBlock && !blocked,
+        Sync(ref statusPacket, ref packetFailed, configuration.ToolStatusBlock && !blocked,
             "_ProcessPacketStatusEffectHookGL", new StatusPacketDelegate(FilterStatusPacket));
     }
 
@@ -73,34 +73,34 @@ internal sealed unsafe class IChingStatusService : IDisposable
         {
             if (enabled && hook == null)
             {
-                var address = IChingHookAddresses.Resolve(name, diagnostics);
+                var address = ToolHookAddresses.Resolve(name, diagnostics);
                 if (address == 0) { failed = true; return; }
                 hook = Plugin.GameInteropProvider.HookFromAddress(address, detour);
             }
             if (hook != null && hook.IsEnabled != enabled)
             {
-                if (enabled) { hook.Enable(); diagnostics.Write("I-Ching Hook", $"{name}已接管。"); }
+                if (enabled) { hook.Enable(); diagnostics.Write("工具 Hook", $"{name}已接管。"); }
                 else hook.Disable();
             }
         }
         catch (Exception exception)
         {
             failed = true;
-            diagnostics.Write("I-Ching Hook", $"{name}安装失败：{exception.GetType().Name}。");
-            Plugin.Log.Error(exception, $"I-Ching {name} hook failed");
+            diagnostics.Write("工具 Hook", $"{name}安装失败：{exception.GetType().Name}。");
+            Plugin.Log.Error(exception, $"Soumen {name} hook failed");
         }
     }
 
     private nint InterceptForcedAction(GameObject* actor, float x, float y, float z, int fifth, nint sixth)
     {
-        if (configuration.IChingIgnoreCharm && Plugin.ObjectTable.LocalPlayer != null) return 0;
+        if (configuration.ToolIgnoreCharm && Plugin.ObjectTable.LocalPlayer != null) return 0;
         return forcedAction!.Original(actor, x, y, z, fifth, sixth);
     }
 
     private void FilterStatusManager(StatusManager* manager)
     {
         var player = Plugin.ObjectTable.LocalPlayer;
-        if (configuration.IChingStatusBlock && manager != null && manager->Owner != null
+        if (configuration.ToolStatusBlock && manager != null && manager->Owner != null
             && player != null && manager->Owner->EntityId == player.EntityId)
         {
             foreach (ref var entry in manager->Status)
@@ -112,7 +112,7 @@ internal sealed unsafe class IChingStatusService : IDisposable
     private void FilterStatusPacket(uint entityId, StatusEffectList* packet, bool replay, bool firstHalf)
     {
         var player = Plugin.ObjectTable.LocalPlayer;
-        if (configuration.IChingStatusBlock && packet != null && player != null && entityId == player.EntityId)
+        if (configuration.ToolStatusBlock && packet != null && player != null && entityId == player.EntityId)
         {
             foreach (ref var entry in packet->Entries)
                 if (MotionRestrictions.Contains(entry.StatusID)) entry = default;

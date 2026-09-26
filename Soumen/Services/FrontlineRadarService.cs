@@ -31,7 +31,7 @@ public sealed class FrontlineRadarService : IDisposable
 
         if (!Plugin.ClientState.IsPvP)
         {
-            diagnostics.WriteThrottled("iching-frontline-inactive", "战场透视",
+            diagnostics.WriteThrottled("soumen-tools-frontline-inactive", "战场透视",
                 $"当前地图={Plugin.ClientState.TerritoryType}，未处于 PvP 地图，未绘制。", TimeSpan.FromSeconds(30));
             return;
         }
@@ -39,7 +39,7 @@ public sealed class FrontlineRadarService : IDisposable
         var local = Plugin.ObjectTable.LocalPlayer;
         if (local == null || local.Address == 0)
         {
-            diagnostics.WriteThrottled("iching-frontline-no-player", "战场透视",
+            diagnostics.WriteThrottled("soumen-tools-frontline-no-player", "战场透视",
                 "角色对象尚未加载，未绘制。", TimeSpan.FromSeconds(30));
             return;
         }
@@ -101,7 +101,7 @@ public sealed class FrontlineRadarService : IDisposable
                 drawList.AddLine(lineStart, screen, color, 1f * scale);
         }
 
-        diagnostics.WriteThrottled("iching-frontline-radar", "战场透视",
+        diagnostics.WriteThrottled("soumen-tools-frontline-radar", "战场透视",
             $"地图={Plugin.ClientState.TerritoryType}，自身阵营={localBattalion}，附近玩家={inspected}，判定敌方={enemies}，阵营分布={string.Join(",", battalions.Select(pair => $"{pair.Key}:{pair.Value}"))}。",
             TimeSpan.FromSeconds(10));
     }
