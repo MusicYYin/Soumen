@@ -6,4 +6,8 @@ public enum UiTheme
     Dark,
     Light,
     Twilight,
+    Forest,
+    Rose,
+    Amber,
+    Rainbow,
 }
